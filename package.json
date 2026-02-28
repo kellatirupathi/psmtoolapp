@@ -1,0 +1,123 @@
+{
+  "name": "sample",
+  "version": "0.1.0",
+  "private": true,
+  "main": "desktop/main.js",
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.20",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^13.5.0",
+    "@trpc/client": "^11.9.0",
+    "@trpc/react-query": "^11.9.0",
+    "@trpc/server": "^11.9.0",
+    "adm-zip": "^0.5.16",
+    "cheerio": "^1.2.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
+    "googleapis": "^171.4.0",
+    "mongodb": "^6.21.0",
+    "multer": "^2.0.2",
+    "papaparse": "^5.5.3",
+    "pdf-parse": "^2.4.5",
+    "react": "^19.2.4",
+    "react-aria-components": "^1.14.0",
+    "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "react-scripts": "5.0.1",
+    "remark-gfm": "^4.0.1",
+    "web-vitals": "^2.1.4",
+    "zod": "^4.3.6"
+  },
+  "scripts": {
+    "dev": "concurrently \"npm run start:server\" \"npm run start:client\"",
+    "start:client": "cross-env PORT=3000 react-scripts start",
+    "start:server": "tsx backend/src/server.ts",
+    "build:server": "tsc -p backend/tsconfig.json",
+    "build:desktop-client": "cross-env PUBLIC_URL=. REACT_APP_API_URL=http://127.0.0.1:4000/api react-scripts build",
+    "desktop:build": "npm run build:desktop-client && npm run build:server",
+    "desktop:start": "npm run desktop:build && electron .",
+    "desktop:package:win": "npm run desktop:build && electron-builder --win nsis",
+    "desktop:package:mac": "npm run desktop:build && electron-builder --mac",
+    "desktop:package:linux": "npm run desktop:build && electron-builder --linux",
+    "typecheck:client": "tsc -p tsconfig.json --noEmit",
+    "typecheck:server": "tsc -p backend/tsconfig.json --noEmit",
+    "typecheck": "npm run typecheck:client && npm run typecheck:server",
+    "start": "npm run dev",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^25.2.3",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^35.3.0",
+    "electron-builder": "^26.0.12",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "build": {
+    "extends": null,
+    "appId": "com.nxtwave.psm-analyser",
+    "productName": "PSM Analyser",
+    "extraMetadata": {
+      "main": "desktop/main.js"
+    },
+    "directories": {
+      "output": "desktop/releases"
+    },
+    "files": [
+      "build/**/*",
+      "desktop/**/*",
+      "backend/dist/**/*",
+      "backend/prompts/**/*",
+      "curriculum.txt",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**",
+      "node_modules/ffprobe-static/**"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "PSM-Analyser-Setup-${version}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": true
+    }
+  }
+}

@@ -1,0 +1,266 @@
+.docs-body {
+  overflow: auto;
+}
+
+.docs-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 10% 8%, rgba(20, 148, 134, 0.15), transparent 32%),
+    radial-gradient(circle at 86% 5%, rgba(240, 120, 58, 0.12), transparent 35%),
+    #f2f5f9;
+  color: #18263a;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.docs-main {
+  margin: 0 auto;
+  max-width: 1240px;
+  padding: 20px 16px 32px;
+}
+
+.docs-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid #d6dce2;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.93);
+  backdrop-filter: blur(6px);
+}
+
+.docs-topbar h1 {
+  margin: 0;
+  font-size: 30px;
+}
+
+.docs-home-link {
+  text-decoration: none;
+  background: #ffffff;
+  border: 1px solid #d2dbe4;
+  color: #15304d;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-weight: 600;
+}
+
+.docs-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.docs-sidebar {
+  position: sticky;
+  top: 90px;
+  border: 1px solid #d6dce2;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.docs-sidebar-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #3c5872;
+}
+
+.docs-mode-button {
+  border: 1px solid #d6dce2;
+  background: #f6f9fc;
+  color: #1d3957;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.docs-mode-button:hover {
+  background: #edf4fb;
+  border-color: #c8d4e0;
+  transform: translateX(1px);
+}
+
+.docs-mode-button.active {
+  background: #0f2942;
+  border-color: #0f2942;
+  color: #ffffff;
+}
+
+.docs-card {
+  background: #ffffff;
+  border: 1px solid #d6dce2;
+  border-radius: 14px;
+  padding: 18px 22px;
+  line-height: 1.65;
+}
+
+.docs-template-card {
+  border: 1px solid #d6e2f3;
+  background: #f4f8ff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.docs-template-card h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.docs-template-card p {
+  margin: 0 0 8px;
+  color: #29476a;
+}
+
+.docs-template-card a {
+  color: #0f4f92;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.docs-template-card a:hover {
+  text-decoration: underline;
+}
+
+.docs-card h1,
+.docs-card h2,
+.docs-card h3 {
+  color: #14263a;
+  margin-top: 18px;
+  margin-bottom: 8px;
+  scroll-margin-top: 96px;
+}
+
+.docs-card h1 {
+  margin-top: 0;
+  font-size: 30px;
+}
+
+.docs-card h2 {
+  font-size: 24px;
+}
+
+.docs-card h3 {
+  font-size: 19px;
+}
+
+.docs-card p {
+  margin: 8px 0;
+}
+
+.docs-card ul {
+  margin: 8px 0 12px 20px;
+}
+
+.docs-card li {
+  margin: 3px 0;
+}
+
+.docs-card hr {
+  border: 0;
+  border-top: 1px solid #dde4eb;
+  margin: 18px 0;
+}
+
+.docs-card pre {
+  background: #10263d;
+  color: #ebf3ff;
+  border-radius: 10px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.docs-card code {
+  background: #eef3f8;
+  border: 1px solid #dbe3eb;
+  border-radius: 5px;
+  padding: 0 4px;
+  font-size: 0.92em;
+}
+
+.docs-card pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+}
+
+@media (max-width: 920px) {
+  .docs-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .docs-sidebar {
+    position: static;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .docs-sidebar-title {
+    grid-column: 1 / -1;
+  }
+
+  .docs-mode-button:hover {
+    transform: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .docs-main {
+    padding: 12px 10px 24px;
+  }
+
+  .docs-card {
+    padding: 16px 14px;
+  }
+
+  .docs-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 10px 12px;
+  }
+
+  .docs-topbar h1 {
+    font-size: 24px;
+  }
+
+  .docs-sidebar {
+    grid-template-columns: 1fr;
+  }
+
+  .docs-home-link {
+    width: 100%;
+    text-align: center;
+  }
+
+  .docs-card h1 {
+    font-size: 26px;
+  }
+
+  .docs-card h2 {
+    font-size: 21px;
+  }
+
+  .docs-card h3 {
+    font-size: 17px;
+  }
+}
