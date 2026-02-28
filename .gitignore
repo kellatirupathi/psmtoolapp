@@ -28,6 +28,7 @@ node_modules
 dist
 desktop/releases/*
 !desktop/releases/.gitkeep
+desktop/desktop.env
 kossip-helpers.json
 
 DownloadedVideos/

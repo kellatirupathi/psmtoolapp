@@ -10,6 +10,7 @@ const BACKEND_HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/api/health`;
 const BACKEND_START_TIMEOUT_MS = 30000;
 const HEALTH_CHECK_INTERVAL_MS = 600;
 const UPDATE_CHECK_DELAY_MS = 4000;
+const DESKTOP_ENV_FILE = "desktop.env";
 
 let mainWindow = null;
 let backendLoaded = false;
@@ -19,6 +20,31 @@ let isUpdateDownloadRequested = false;
 
 const resolveAppPath = (...segments) => path.join(app.getAppPath(), ...segments);
 const withMainWindow = () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null);
+const getUserDesktopEnvPath = () => path.join(app.getPath("userData"), DESKTOP_ENV_FILE);
+
+const getPackagedDesktopEnvCandidates = () => {
+  const candidates = [resolveAppPath("desktop", DESKTOP_ENV_FILE)];
+  if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, "desktop", DESKTOP_ENV_FILE));
+    candidates.push(path.join(process.resourcesPath, "app.asar.unpacked", "desktop", DESKTOP_ENV_FILE));
+  }
+  return candidates;
+};
+
+const ensureUserDesktopEnv = () => {
+  const userDesktopEnvPath = getUserDesktopEnvPath();
+  if (fs.existsSync(userDesktopEnvPath)) {
+    return;
+  }
+
+  const packagedDesktopEnv = getPackagedDesktopEnvCandidates().find((candidate) => fs.existsSync(candidate));
+  if (!packagedDesktopEnv) {
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(userDesktopEnvPath), { recursive: true });
+  fs.copyFileSync(packagedDesktopEnv, userDesktopEnvPath);
+};
 
 const parseEnvFile = (filePath) => {
   const values = {};
@@ -51,9 +77,10 @@ const parseEnvFile = (filePath) => {
 };
 
 const loadDesktopEnvOverrides = () => {
+  ensureUserDesktopEnv();
   const candidates = [
-    path.join(app.getPath("userData"), "desktop.env"),
-    resolveAppPath("desktop", "desktop.env"),
+    getUserDesktopEnvPath(),
+    ...getPackagedDesktopEnvCandidates(),
   ];
 
   for (const candidate of candidates) {

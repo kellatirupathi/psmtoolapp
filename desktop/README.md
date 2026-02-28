@@ -9,7 +9,7 @@ This project supports a downloadable desktop app (Electron) that runs:
 
 ### Desktop Runtime Config (`desktop.env`)
 
-If installer users should connect to shared MongoDB/settings, provide a `desktop.env` file
+If installer users should connect to shared MongoDB/settings, include a `desktop.env` file
 with at least:
 
 ```text
@@ -22,7 +22,8 @@ Supported locations:
 - `%APPDATA%/<AppName>/desktop.env` (user override)
 - `<app-install>/resources/app.asar/desktop/desktop.env` (packaged default)
 
-Template file: `desktop/desktop.env.example`
+Build packaging now auto-generates `desktop/desktop.env` from project `.env` before installer build.
+Template fallback file: `desktop/desktop.env.example`.
 
 ### Build Desktop Installer (Windows)
 
