@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./DocumentationPage.css";
@@ -221,6 +221,16 @@ export function DocumentationPage() {
   const currentMode =
     documentationModes.find((mode) => mode.id === selectedMode) ?? documentationModes[0];
 
+  const handleOpenApp = (event: MouseEvent<HTMLAnchorElement>): void => {
+    event.preventDefault();
+    const params = new URLSearchParams({
+      api: "mistralapi",
+      module: "interview-analyser",
+    });
+    window.history.pushState({}, "", `/interview-analyser?${params.toString()}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+
   useEffect(() => {
     document.body.classList.add("docs-body");
 
@@ -234,7 +244,11 @@ export function DocumentationPage() {
       <main className="docs-main">
         <header className="docs-topbar">
           <h1>PsmTool Documentation</h1>
-          <a href="/" className="docs-home-link">
+          <a
+            href="/interview-analyser?api=mistralapi&module=interview-analyser"
+            className="docs-home-link"
+            onClick={handleOpenApp}
+          >
             Open App
           </a>
         </header>

@@ -273,6 +273,10 @@ export default function App() {
     navigateTo("/interview-analyser", params);
   }, [locationState.search, navigateTo, selectedProvider]);
 
+  const handleOpenDocumentation = useCallback((): void => {
+    navigateTo("/documentation");
+  }, [navigateTo]);
+
   const pageContent = useMemo(() => {
     if (activeRoute.key === "settings") {
       return <SettingsPage />;
@@ -382,14 +386,24 @@ export default function App() {
             ) : (
               <span className="doc-link-button disabled">Desktop Download Unavailable</span>
             ))}
-          <a
-            className="doc-link-button"
-            href="/documentation"
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            Documentation
-          </a>
+          {isDesktopRuntime ? (
+            <button
+              type="button"
+              className="doc-link-button"
+              onClick={handleOpenDocumentation}
+            >
+              Documentation
+            </button>
+          ) : (
+            <a
+              className="doc-link-button"
+              href="/documentation"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              Documentation
+            </a>
+          )}
           <div className="sidebar-footer">{config.version}</div>
         </div>
       </aside>
