@@ -32,6 +32,7 @@ const resolveApiBase = (): string => {
 
 const API_BASE = resolveApiBase();
 const DEFAULT_TIMEOUT_MS = 60_000;
+const APP_CONFIG_TIMEOUT_MS = 70_000;
 const CONFIG_TIMEOUT_MS = 10_000;
 const JOB_STATUS_TIMEOUT_MS = 20_000;
 const JOB_CONTROL_TIMEOUT_MS = 20_000;
@@ -109,7 +110,7 @@ const postJson = async <T>(
 
 export const fetchAppConfig = async (): Promise<AppConfig> => {
   const url = toApiUrl("/app-config");
-  const response = await fetchWithTimeout(url, undefined, CONFIG_TIMEOUT_MS);
+  const response = await fetchWithTimeout(url, undefined, APP_CONFIG_TIMEOUT_MS);
   await assertResponse(response, url);
   return parseJson<AppConfig>(response, url);
 };

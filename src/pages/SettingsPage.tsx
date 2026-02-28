@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchProviderSettings, saveProviderSettings } from "../api/client";
 import type { ProviderSettings, ProviderSettingsEntry } from "../types";
 
@@ -44,8 +44,15 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<ProviderSettings>(defaultSettings);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [checkingForUpdates, setCheckingForUpdates] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+  const canCheckForUpdates = useMemo(
+    () => typeof window !== "undefined" && typeof window.desktopUpdater?.checkForUpdates === "function",
+    [],
+  );
 
   useEffect(() => {
     const load = async (): Promise<void> => {
@@ -97,6 +104,28 @@ export function SettingsPage() {
       setError(String(err));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const checkForUpdates = async (): Promise<void> => {
+    if (!canCheckForUpdates || !window.desktopUpdater) {
+      return;
+    }
+
+    try {
+      setCheckingForUpdates(true);
+      setUpdateError(null);
+      setUpdateStatus(null);
+      const result = await window.desktopUpdater.checkForUpdates();
+      if (!result.ok) {
+        setUpdateError(result.message);
+        return;
+      }
+      setUpdateStatus(result.message);
+    } catch (err) {
+      setUpdateError(String(err));
+    } finally {
+      setCheckingForUpdates(false);
     }
   };
 
@@ -235,6 +264,15 @@ export function SettingsPage() {
           <button className="primary-button" onClick={() => void save()} disabled={saving || loading}>
             {saving ? "Saving..." : "Save Settings"}
           </button>
+          {canCheckForUpdates && (
+            <button
+              className="secondary-button"
+              onClick={() => void checkForUpdates()}
+              disabled={checkingForUpdates || saving || loading}
+            >
+              {checkingForUpdates ? "Checking..." : "Check for Updates"}
+            </button>
+          )}
           {loading && <span className="muted">Loading settings...</span>}
           {settings.updatedAt && !loading && (
             <span className="muted">Last updated: {new Date(settings.updatedAt).toLocaleString()}</span>
@@ -243,6 +281,8 @@ export function SettingsPage() {
 
         {success && <div className="live-status-line">{success}</div>}
         {error && <div className="error-box">{error}</div>}
+        {updateStatus && <div className="live-status-line">{updateStatus}</div>}
+        {updateError && <div className="error-box">{updateError}</div>}
       </section>
     </div>
   );

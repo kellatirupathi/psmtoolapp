@@ -199,12 +199,27 @@ export default function App() {
       return;
     }
 
+    const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
     const loadConfig = async (): Promise<void> => {
+      const maxAttempts = 2;
       try {
         setLoadingConfig(true);
-        const remoteConfig = await fetchAppConfig();
-        setConfig(remoteConfig);
-        setSelectedProduct((prev) => (remoteConfig.productOptions.includes(prev) ? prev : remoteConfig.productOptions[0]));
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          try {
+            const remoteConfig = await fetchAppConfig();
+            setConfig(remoteConfig);
+            setSelectedProduct((prev) => (
+              remoteConfig.productOptions.includes(prev) ? prev : remoteConfig.productOptions[0]
+            ));
+            return;
+          } catch (error) {
+            if (attempt >= maxAttempts) {
+              throw error;
+            }
+            await wait(2500);
+          }
+        }
       } catch {
         setConfig(fallbackConfig);
       } finally {
@@ -362,6 +377,8 @@ export default function App() {
               >
                 Download Desktop App
               </a>
+            ) : loadingConfig ? (
+              <span className="doc-link-button disabled">Checking Desktop Download...</span>
             ) : (
               <span className="doc-link-button disabled">Desktop Download Unavailable</span>
             ))}
