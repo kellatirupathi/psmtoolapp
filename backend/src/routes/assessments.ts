@@ -19,7 +19,7 @@ router.post("/individual", upload.any(), async (req, res) => {
   try {
     const rowsRaw = typeof req.body?.rows === "string" ? req.body.rows : "[]";
     const rows = JSON.parse(rowsRaw);
-    const product = String(req.body?.product ?? "N/A");
+    const product = String(req.body?.product ?? "");
     const provider = normalizeAiProvider(req.body?.provider);
 
     const fileMap = toFileMap(req.files as Express.Multer.File[]);

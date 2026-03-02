@@ -22,3 +22,11 @@ export const forceEnumFormat = (value: unknown): string => {
   const normalized = normalizeSingle(value);
   return normalized && normalized.length > 0 ? normalized : "N/A";
 };
+
+export const forceEnumFormatOrEmpty = (value: unknown): string => {
+  const normalized = forceEnumFormat(value);
+  if (normalized === "N/A" || normalized === "N_A") {
+    return "";
+  }
+  return normalized;
+};

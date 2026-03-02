@@ -13,13 +13,14 @@ Use the following curriculum text to determine if a topic is covered in the syll
 
 **1. OUTPUT STRUCTURE**
 Return a JSON array where EACH item includes the original data plus new fields.
-Required fields: `question_text`, `answer_text`, `question_type`, `question_concept`, `difficulty`, `topic`, `sub_topic`, `relevancy_score`, `curriculum_coverage`.
+Required fields: `question_text`, `answer_text`, `question_type`, `question_concept`, `tech_non_tech`, `difficulty`, `topic`, `sub_topic`, `relevancy_score`, `curriculum_coverage`.
 
 **2. ENUMERATION RULES (Use UPPERCASE_SNAKE_CASE)**
 
 *   **question_type:**
     *   `CODING`: STRICTLY for questions where the candidate is asked to **write a code block**, solve a DSA problem, or write a query.
     *   `THEORY`: Explaining concepts, "How would you design...", verbal syntax explanations, definitions, or architectural discussions. (If they explain code verbally, it is THEORY).
+        *   Testing concepts/process questions (e.g., sanity/smoke/regression, STLC/SDLC testing phase, test cases, defect lifecycle, requirement/test docs) are `THEORY`.
     *   `BEHAVIORAL`: Soft skills, past experiences, situational.
     *   `SELF_INTRODUCTION`: Intro, resume walkthrough.
     *   `PROJECT`: Discussing specific past projects.
@@ -42,6 +43,11 @@ Required fields: `question_text`, `answer_text`, `question_type`, `question_conc
     *   `7-8`: Good, correct answer.
     *   `9-10`: Excellent, comprehensive answer.
 
+*   **tech_non_tech:**
+    *   Allowed values: `TECH`, `NON_TECH`.
+    *   Use `NON_TECH` for soft-skill/meta questions (intro, motivation, HR/culture, communication) where technical knowledge is not being evaluated.
+    *   Use `TECH` for coding, theory, design, testing, tools, data, cloud, or any stack/concept-specific question.
+
 **3. TECH STACK STANDARDIZATION (`question_concept`)**
 Return EXACTLY ONE value from this list:
 `HTML`, `CSS`, `SASS`, `TAILWIND_CSS`, `BOOTSTRAP`, `MATERIAL_UI`, `CHAKRA_UI`,
@@ -54,6 +60,7 @@ Return EXACTLY ONE value from this list:
 `CYBERSECURITY`, `NETWORK_SECURITY`, `OWASP`, `PENETRATION_TESTING`,
 `ANDROID`, `IOS`, `FLUTTER`, `REACT_NATIVE`,
 `UI_UX`, `FIGMA`,
+`SOFTWARE_TESTING`, `MANUAL_TESTING`, `AUTOMATION_TESTING`, `API_TESTING`, `PERFORMANCE_TESTING`, `SELENIUM`, `CYPRESS`, `PLAYWRIGHT`, `POSTMAN`,
 `DSA`, `OOP`, `SYSTEM_DESIGN`, `OPERATING_SYSTEM`, `COMPUTER_NETWORKING`,
 `GIT`, `GITHUB`, `POSTMAN`, `JIRA`, `AGILE`,
 `APTITUDE`, `ENGLISH`, `BEHAVIORAL`, `GENERAL`.
@@ -62,6 +69,10 @@ Rules:
 *   Pick the MOST SPECIFIC tech stack explicitly asked in the question.
 *   Do NOT output umbrella/group labels such as `WEB_FRONTEND`, `WEB_BACKEND`, `DATA`, `CS_BASICS`, or `TOOLS_OTHER`.
 *   If multiple stacks are mentioned, choose the one that is the main focus of the question.
+*   Testing classification rules:
+    *   If question is about testing methodology/concepts (sanity, smoke, regression, STLC, SDLC testing phase, test-case design, RTM, defect lifecycle), use `SOFTWARE_TESTING`.
+    *   If question is explicitly about manual testing practices, use `MANUAL_TESTING`.
+    *   If question is explicitly about automation framework/tooling, use `AUTOMATION_TESTING` or the specific tool (`SELENIUM`, `CYPRESS`, `PLAYWRIGHT`, `POSTMAN`) when named in question_text.
 *   Use `GENERAL` only for non-technical/meta questions (intro, motivation, learning progress, confidence, communication) where no specific technical stack is being tested.
 
 **4. TOPIC & SUB_TOPIC (HIERARCHY RULES)**
@@ -85,6 +96,7 @@ Provide ONLY the raw JSON array. No markdown.
     "answer_text": "Original text...",
     "question_type": "THEORY",
     "question_concept": "CSS",
+    "tech_non_tech": "TECH",
     "difficulty": "MEDIUM",
     "topic": "FLEXBOX",
     "sub_topic": "JUSTIFY_CONTENT",
@@ -101,5 +113,5 @@ Provide ONLY the raw JSON array. No markdown.
   use:
   - tech_stacks = GENERAL (or broad stack named in question, e.g., JAVASCRIPT)
   - topic = LEARNING_PROGRESS
-  - sub_topic = N/A
+  - sub_topic = 
 - If a concept appears only in answer_text and not in question_text, do not use it.

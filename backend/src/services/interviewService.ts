@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { APP_DIRS, BIGQUERY_TABLE_NAMES, QNA_CHUNK_OVERLAP, QNA_CHUNK_SIZE, SHEET_NAMES } from "../config";
+import { APP_DIRS, BIGQUERY_TABLE_NAMES, SHEET_NAMES } from "../config";
 import { getRuntimeProviderConfig, getStorageSettings, type ProviderRuntimeConfig } from "./settingsService";
 import { getCurriculumSnippet } from "../utils/curriculum";
-import { forceEnumFormat } from "../utils/enum";
+import { forceEnumFormat, forceEnumFormatOrEmpty } from "../utils/enum";
 import { ensureDirs, readTextFileIfExists, safeRemoveFile, writeTextFile } from "../utils/fs";
 import { createPublicGist } from "../utils/gist";
 import { appendRowsToBigQuery } from "../utils/bigquery";
@@ -50,11 +50,13 @@ const SHEET_HEADERS = [
   "question_creation_datetime",
   "source_type",
   "product",
+  "tech/non-tech",
 ];
 
 const CLASSIFY_FIELDS = [
   "question_type",
   "question_concept",
+  "tech_non_tech",
   "difficulty",
   "topic",
   "sub_topic",
@@ -63,6 +65,32 @@ const CLASSIFY_FIELDS = [
 ] as const;
 
 const nowDateTime = (): string => new Date().toISOString().slice(0, 19).replace("T", " ");
+
+const NON_TECH_QUESTION_TYPES = new Set(["BEHAVIORAL", "SELF_INTRODUCTION", "GENERAL"]);
+const NON_TECH_STACKS = new Set(["GENERAL", "BEHAVIORAL", "ENGLISH", "COMMUNICATION"]);
+
+const resolveTechNonTech = (args: {
+  providedValue?: unknown;
+  questionType?: unknown;
+  techStack?: unknown;
+}): string => {
+  const provided = forceEnumFormat(args.providedValue ?? "N/A");
+  if (provided !== "N_A") {
+    return provided;
+  }
+
+  const normalizedQuestionType = forceEnumFormat(args.questionType ?? "N/A");
+  if (NON_TECH_QUESTION_TYPES.has(normalizedQuestionType)) {
+    return "NON_TECH";
+  }
+
+  const normalizedTechStack = forceEnumFormat(args.techStack ?? "N/A");
+  if (NON_TECH_STACKS.has(normalizedTechStack)) {
+    return "NON_TECH";
+  }
+
+  return "TECH";
+};
 
 type InterviewAnalysisResult = {
   rows: Array<Record<string, string>>;
@@ -187,49 +215,22 @@ const classifyQnaList = async (
   return mergeClassification(qna, classified);
 };
 
-const processLargeTranscriptWithOverlap = async (
+const extractQnaFromFullTranscript = async (
   runtime: ProviderRuntimeConfig,
   transcript: string,
   prompt: string,
-  chunkSize = 12000,
-  overlap = 1000,
   abortIfCancelled?: () => void,
 ): Promise<QaItem[]> => {
-  const extracted: QaItem[] = [];
-  let start = 0;
+  abortIfCancelled?.();
+  const content = `Analyze this full interview transcript:\n\n${transcript}`;
+  const response = await getChatCompletion(runtime, prompt, content);
+  abortIfCancelled?.();
+  const parsed = parseModelResultAsArray(response);
 
-  while (start < transcript.length) {
-    abortIfCancelled?.();
-    let end = Math.min(start + chunkSize, transcript.length);
-
-    if (end < transcript.length) {
-      const nextNewline = transcript.indexOf("\n", end);
-      if (nextNewline !== -1 && nextNewline - end < 200) {
-        end = nextNewline;
-      }
-    }
-
-    const chunk = transcript.slice(start, end);
-    const content = `Analyze this interview segment:\n\n${chunk}`;
-
-    const response = await getChatCompletion(runtime, prompt, content);
-    abortIfCancelled?.();
-    const parsed = parseModelResultAsArray(response);
-
-    for (const item of parsed) {
-      extracted.push({
-        question_text: String(item.question_text ?? ""),
-        answer_text: String(item.answer_text ?? ""),
-      });
-    }
-
-    start += chunkSize - overlap;
-    if (start >= transcript.length) {
-      break;
-    }
-  }
-
-  return extracted;
+  return parsed.map((item) => ({
+    question_text: String(item.question_text ?? ""),
+    answer_text: String(item.answer_text ?? ""),
+  }));
 };
 
 const generateTranscript = async (
@@ -399,33 +400,43 @@ const mapQaToSheetRows = (args: {
     product: string;
   };
 }): Array<Record<string, string>> => {
-  return args.qaItems.map((item) => ({
-    user_id: args.meta.userId,
-    full_name: args.meta.fullName,
-    mobile_number: args.meta.mobile,
-    job_id: args.meta.jobId,
-    company_name: args.meta.companyName,
-    question_text: String(item.question_text ?? ""),
-    answer_text: String(item.answer_text ?? ""),
-    relevancy_score: String(item.relevancy_score ?? "N/A"),
-    question_type: forceEnumFormat(item.question_type ?? "N/A"),
-    tech_stacks: forceEnumFormat(item.question_concept ?? "N/A"),
-    topic: forceEnumFormat(item.topic ?? "N/A"),
-    sub_topic: forceEnumFormat(item.sub_topic ?? "N/A"),
-    difficulty: forceEnumFormat(item.difficulty ?? "N/A"),
-    interview_round: forceEnumFormat(args.meta.interviewRound),
-    clip_start_time: String(args.meta.clipStart),
-    clip_end_time: String(args.meta.clipEnd),
-    video_link: args.meta.videoLink,
-    transcript_link: args.meta.transcriptLink,
-    drive_file_id: args.meta.driveFileId,
-    curriculum_coverage: forceEnumFormat(item.curriculum_coverage ?? "N/A"),
-    question_uid: randomUUID(),
-    interview_date: args.meta.interviewDate,
-    question_creation_datetime: nowDateTime(),
-    source_type: args.meta.sourceType,
-    product: args.meta.product,
-  }));
+  return args.qaItems.map((item) => {
+    const questionType = forceEnumFormat(item.question_type ?? "");
+    const techStacks = forceEnumFormat(item.question_concept ?? "");
+
+    return {
+      user_id: args.meta.userId,
+      full_name: args.meta.fullName,
+      mobile_number: args.meta.mobile,
+      job_id: args.meta.jobId,
+      company_name: args.meta.companyName,
+      question_text: String(item.question_text ?? ""),
+      answer_text: String(item.answer_text ?? ""),
+      relevancy_score: String(item.relevancy_score ?? ""),
+      question_type: questionType,
+      tech_stacks: techStacks,
+      topic: forceEnumFormat(item.topic ?? ""),
+      sub_topic: forceEnumFormatOrEmpty(item.sub_topic ?? ""),
+      difficulty: forceEnumFormat(item.difficulty ?? ""),
+      interview_round: forceEnumFormat(args.meta.interviewRound),
+      clip_start_time: String(args.meta.clipStart),
+      clip_end_time: String(args.meta.clipEnd),
+      video_link: args.meta.videoLink,
+      transcript_link: args.meta.transcriptLink,
+      drive_file_id: args.meta.driveFileId,
+      curriculum_coverage: forceEnumFormatOrEmpty(item.curriculum_coverage ?? ""),
+      question_uid: randomUUID(),
+      interview_date: args.meta.interviewDate,
+      question_creation_datetime: nowDateTime(),
+      source_type: args.meta.sourceType,
+      product: args.meta.product,
+      "tech/non-tech": resolveTechNonTech({
+        providedValue: item.tech_non_tech,
+        questionType,
+        techStack: techStacks,
+      }),
+    };
+  });
 };
 
 const ensureHeaderOrder = (rows: Array<Record<string, string>>): Array<Record<string, string>> => {
@@ -438,6 +449,16 @@ const ensureHeaderOrder = (rows: Array<Record<string, string>>): Array<Record<st
   });
 };
 
+const toBigQueryRows = (rows: Array<Record<string, string>>): Array<Record<string, string>> => {
+  return rows.map((row) => {
+    const normalized = { ...row };
+    const techNonTechValue = normalized["tech/non-tech"] ?? "";
+    delete normalized["tech/non-tech"];
+    normalized.tech_non_tech = techNonTechValue;
+    return normalized;
+  });
+};
+
 const runQnaPipeline = async (args: {
   runtime: ProviderRuntimeConfig;
   transcriptText: string;
@@ -446,18 +467,23 @@ const runQnaPipeline = async (args: {
   abortIfCancelled?: () => void;
 }): Promise<QaItem[]> => {
   args.abortIfCancelled?.();
-  const raw = await processLargeTranscriptWithOverlap(
+  const raw = await extractQnaFromFullTranscript(
     args.runtime,
     args.transcriptText,
     args.qnaPrompt,
-    QNA_CHUNK_SIZE,
-    QNA_CHUNK_OVERLAP,
     args.abortIfCancelled,
   );
   args.abortIfCancelled?.();
 
   const deduped = deduplicateQna(raw);
-  return classifyQnaList(args.runtime, deduped, args.classifyPrompt, 12, args.abortIfCancelled);
+  const singlePassBatchSize = Math.max(deduped.length, 1);
+  return classifyQnaList(
+    args.runtime,
+    deduped,
+    args.classifyPrompt,
+    singlePassBatchSize,
+    args.abortIfCancelled,
+  );
 };
 
 const saveQaCsv = (filePath: string, rows: Array<Record<string, string>>): void => {
@@ -676,6 +702,8 @@ export const runInterviewAnalyzer = async (args: {
   const totalRows = args.rows.length;
   const runToken = randomUUID().replace(/-/g, "").slice(0, 12);
   let rowIndex = 0;
+  let sheetSaveFailed = false;
+  let bigQuerySaveFailed = false;
 
   for (const row of args.rows) {
     args.abortIfCancelled?.();
@@ -694,39 +722,52 @@ export const runInterviewAnalyzer = async (args: {
     });
     finalRows.push(...processed.rows);
     cleanupPaths.push(...processed.cleanupPaths);
+    const candidateRows = ensureHeaderOrder(processed.rows);
+
+    if (candidateRows.length > 0 && storageSettings.saveToSheets) {
+      args.onStatus?.(`Candidate ${rowIndex}/${totalRows}: saving to sheet...`);
+      const candidateSheetSaved = await appendRowsWithHeaders({
+        sheetName: SHEET_NAMES.interview,
+        headers: SHEET_HEADERS,
+        rows: candidateRows,
+      });
+      if (!candidateSheetSaved) {
+        sheetSaveFailed = true;
+      }
+    }
+
+    if (candidateRows.length > 0 && storageSettings.saveToBigQuery) {
+      args.onStatus?.(`Candidate ${rowIndex}/${totalRows}: saving to BigQuery...`);
+      const candidateBigQuerySaved = await appendRowsToBigQuery({
+        tableName: BIGQUERY_TABLE_NAMES.interview,
+        rows: toBigQueryRows(candidateRows),
+      });
+      if (!candidateBigQuerySaved) {
+        bigQuerySaveFailed = true;
+      }
+    }
+
     args.onStatus?.(`Candidate ${rowIndex}/${totalRows}: completed.`, {
       partialResult: {
         rows: ensureHeaderOrder(finalRows),
-        savedToSheet: false,
-        savedToBigQuery: false,
+        savedToSheet: storageSettings.saveToSheets ? !sheetSaveFailed : false,
+        savedToBigQuery: storageSettings.saveToBigQuery ? !bigQuerySaveFailed : false,
       },
     });
   }
 
   args.abortIfCancelled?.();
   const orderedRows = ensureHeaderOrder(finalRows);
-  let savedToSheet = false;
-  if (storageSettings.saveToSheets) {
-    args.onStatus?.("Saving interview rows to sheet...");
-    savedToSheet = await appendRowsWithHeaders({
-      sheetName: SHEET_NAMES.interview,
-      headers: SHEET_HEADERS,
-      rows: orderedRows,
-    });
-  } else {
+  if (!storageSettings.saveToSheets) {
     args.onStatus?.("Sheet save is disabled in settings. Skipping sheet save.");
   }
 
-  let savedToBigQuery = false;
-  if (storageSettings.saveToBigQuery) {
-    args.onStatus?.("Saving interview rows to BigQuery...");
-    savedToBigQuery = await appendRowsToBigQuery({
-      tableName: BIGQUERY_TABLE_NAMES.interview,
-      rows: orderedRows,
-    });
-  } else {
+  if (!storageSettings.saveToBigQuery) {
     args.onStatus?.("BigQuery save is disabled in settings. Skipping BigQuery save.");
   }
+
+  const savedToSheet = storageSettings.saveToSheets ? !sheetSaveFailed : false;
+  const savedToBigQuery = storageSettings.saveToBigQuery ? !bigQuerySaveFailed : false;
 
   const allRequestedSavesSucceeded =
     (!storageSettings.saveToSheets || savedToSheet) &&
@@ -855,7 +896,7 @@ export const runVideoUploader = async (args: {
     args.onStatus?.("Saving video uploader rows to BigQuery...");
     savedToBigQuery = await appendRowsToBigQuery({
       tableName: BIGQUERY_TABLE_NAMES.interview,
-      rows: orderedRows,
+      rows: toBigQueryRows(orderedRows),
     });
   } else {
     args.onStatus?.("BigQuery save is disabled in settings. Skipping BigQuery save.");

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getCurriculumSnippet } from "../utils/curriculum";
-import { forceEnumFormat } from "../utils/enum";
+import { forceEnumFormat, forceEnumFormatOrEmpty } from "../utils/enum";
 import { appendRowsToBigQuery } from "../utils/bigquery";
 import { appendRowsWithHeaders } from "../utils/google";
 import { aiJsonAsArray } from "../utils/aiProvider";
@@ -30,6 +30,7 @@ Each item must include:
 - \`question_text\`
 - \`question_type\`
 - \`question_concept\`
+- \`tech_non_tech\`
 - \`difficulty\`
 - \`topic\`
 - \`sub_topic\`
@@ -63,6 +64,11 @@ Each item must include:
   * \`COVERED\`: concept/topic appears in curriculum context
   * \`NOT_COVERED\`: technical but not present in curriculum context
   * \`N/A\`: non-technical or insufficient curriculum context
+
+* **tech_non_tech:**
+  * Allowed values: \`TECH\`, \`NON_TECH\`.
+  * Use \`NON_TECH\` for HR/behavioral/intro/meta questions that do not evaluate technical knowledge.
+  * Use \`TECH\` for coding/theory/design/testing/tools/stack-specific questions.
 
 ### EXTRACTION RULES
 * Always convert shorthand/keywords into complete interview questions.
@@ -100,6 +106,7 @@ const SHEET_HEADERS = [
   "interview_date",
   "question_creation_datetime",
   "product",
+  "tech/non-tech",
 ];
 
 type DrilldownAnalysisResult = {
@@ -115,6 +122,32 @@ type StatusUpdateCallback = (
 
 const nowDate = (): string => new Date().toISOString().slice(0, 10);
 const nowDateTime = (): string => new Date().toISOString().slice(0, 19).replace("T", " ");
+
+const NON_TECH_QUESTION_TYPES = new Set(["BEHAVIORAL", "SELF_INTRODUCTION", "GENERAL"]);
+const NON_TECH_STACKS = new Set(["GENERAL", "BEHAVIORAL", "ENGLISH", "COMMUNICATION"]);
+
+const resolveTechNonTech = (args: {
+  providedValue?: unknown;
+  questionType?: unknown;
+  techStack?: unknown;
+}): string => {
+  const provided = forceEnumFormat(args.providedValue ?? "N/A");
+  if (provided !== "N_A") {
+    return provided;
+  }
+
+  const questionType = forceEnumFormat(args.questionType ?? "N/A");
+  if (NON_TECH_QUESTION_TYPES.has(questionType)) {
+    return "NON_TECH";
+  }
+
+  const techStack = forceEnumFormat(args.techStack ?? "N/A");
+  if (NON_TECH_STACKS.has(techStack)) {
+    return "NON_TECH";
+  }
+
+  return "TECH";
+};
 
 const INVALID_ROUND_TEXT_VALUES = new Set([
   "nan",
@@ -274,12 +307,17 @@ const analyzeCandidateRow = async (args: {
       const questionText = extractQuestionText(item);
       if (!questionText) continue;
 
-      const questionType = forceEnumFormat(item.question_type ?? item.questionType ?? item.type ?? "GENERAL");
+      const questionType = forceEnumFormat(item.question_type ?? item.questionType ?? item.type ?? "");
       const techStacks = forceEnumFormat(
-        item.question_concept ?? item.tech_stacks ?? item.techStacks ?? item.category ?? "GENERAL",
+        item.question_concept ?? item.tech_stacks ?? item.techStacks ?? item.category ?? "",
       );
-      const topic = forceEnumFormat(item.topic ?? item.main_topic ?? "N/A");
-      const subTopic = forceEnumFormat(item.sub_topic ?? item.subTopic ?? "N/A");
+      const topic = forceEnumFormat(item.topic ?? item.main_topic ?? "");
+      const subTopic = forceEnumFormatOrEmpty(item.sub_topic ?? item.subTopic ?? "");
+      const techNonTech = resolveTechNonTech({
+        providedValue: item.tech_non_tech ?? item.techNonTech,
+        questionType,
+        techStack: techStacks,
+      });
       addedForRound += 1;
 
       candidateRows.push({
@@ -294,12 +332,13 @@ const analyzeCandidateRow = async (args: {
         tech_stacks: techStacks,
         topic,
         sub_topic: subTopic,
-        difficulty_level: forceEnumFormat(item.difficulty ?? item.difficulty_level ?? "MEDIUM"),
-        curriculum_coverage: forceEnumFormat(item.curriculum_coverage ?? item.coverage ?? "N/A"),
+        difficulty_level: forceEnumFormat(item.difficulty ?? item.difficulty_level ?? ""),
+        curriculum_coverage: forceEnumFormatOrEmpty(item.curriculum_coverage ?? item.coverage ?? ""),
         question_uid: randomUUID(),
         interview_date: dateVal,
         question_creation_datetime: nowDateTime(),
         product,
+        "tech/non-tech": techNonTech,
       });
     }
 
@@ -332,6 +371,16 @@ export const analyzeDrilldownRows = async (
       for (const header of SHEET_HEADERS) {
         normalized[header] = row[header] ?? "N/A";
       }
+      return normalized;
+    });
+  };
+
+  const toBigQueryRows = (rawRows: Array<Record<string, string>>): Array<Record<string, string>> => {
+    return rawRows.map((row) => {
+      const normalized = { ...row };
+      const techNonTechValue = normalized["tech/non-tech"] ?? "N/A";
+      delete normalized["tech/non-tech"];
+      normalized.tech_non_tech = techNonTechValue;
       return normalized;
     });
   };
@@ -501,7 +550,7 @@ export const analyzeDrilldownRows = async (
 
     savedToBigQuery = await appendRowsToBigQuery({
       tableName: BIGQUERY_TABLE_NAMES.drilldown,
-      rows: orderedRows,
+      rows: toBigQueryRows(orderedRows),
     });
   } else {
     onStatus?.("BigQuery save is disabled in settings. Skipping BigQuery save.");

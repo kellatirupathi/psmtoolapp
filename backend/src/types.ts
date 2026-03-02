@@ -18,6 +18,7 @@ export type QaItem = {
   answer_text?: string;
   question_type?: string;
   question_concept?: string;
+  tech_non_tech?: string;
   difficulty?: string;
   topic?: string;
   sub_topic?: string;

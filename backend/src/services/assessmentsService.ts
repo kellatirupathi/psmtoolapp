@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { getCurriculumSnippet } from "../utils/curriculum";
-import { forceEnumFormat } from "../utils/enum";
+import { forceEnumFormat, forceEnumFormatOrEmpty } from "../utils/enum";
 import { appendRowsToBigQuery } from "../utils/bigquery";
 import { appendRowsWithHeaders } from "../utils/google";
 import { aiChatJson, aiJsonAsArray, aiOcr } from "../utils/aiProvider";
@@ -51,7 +51,7 @@ Use the following curriculum text to determine if a topic is covered in the syll
 
 **1. OUTPUT STRUCTURE**
 Return a JSON array where EACH item includes the original data plus new fields.
-Required fields: \`question_text\`, \`question_type\`, \`question_concept\`, \`difficulty\`, \`topic\`, \`sub_topic\`,\`curriculum_coverage\`.
+Required fields: \`question_text\`, \`question_type\`, \`question_concept\`, \`tech_non_tech\`, \`difficulty\`, \`topic\`, \`sub_topic\`,\`curriculum_coverage\`.
 
 **2. ENUMERATION RULES (Use UPPERCASE_SNAKE_CASE)**
 
@@ -72,6 +72,11 @@ Required fields: \`question_text\`, \`question_type\`, \`question_concept\`, \`d
     *   \`COVERED\`: The specific concept appears in the provided Curriculum Context.
     *   \`NOT_COVERED\`: The concept is technical but NOT found in the context.
     *   \`N/A\`: For General/Behavioral questions or if context is missing.
+
+*   **tech_non_tech:**
+    *   Allowed values: \`TECH\`, \`NON_TECH\`.
+    *   Use \`NON_TECH\` for soft-skill/meta questions where technical evaluation is absent.
+    *   Use \`TECH\` for coding/theory/design/testing/tools/stack-specific questions.
 
 
 **3. TECH STACK STANDARDIZATION (\`question_concept\`)**
@@ -108,6 +113,7 @@ const SHEET_HEADERS = [
   "assessment_date",
   "question_creation_datetime",
   "product",
+  "tech/non-tech",
 ];
 
 const VALID_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".pdf", ".tiff", ".bmp"]);
@@ -122,9 +128,36 @@ type ExtractedQuestion = {
   answer_text?: string;
   question_type?: string;
   question_concept?: string;
+  tech_non_tech?: string;
   topic?: string;
   sub_topic?: string;
   curriculum_coverage?: string;
+};
+
+const NON_TECH_QUESTION_TYPES = new Set(["BEHAVIORAL", "SELF_INTRODUCTION", "GENERAL"]);
+const NON_TECH_STACKS = new Set(["GENERAL", "BEHAVIORAL", "ENGLISH", "COMMUNICATION"]);
+
+const resolveTechNonTech = (args: {
+  providedValue?: unknown;
+  questionType?: unknown;
+  techStack?: unknown;
+}): string => {
+  const provided = forceEnumFormat(args.providedValue ?? "N/A");
+  if (provided !== "N_A") {
+    return provided;
+  }
+
+  const questionType = forceEnumFormat(args.questionType ?? "N/A");
+  if (NON_TECH_QUESTION_TYPES.has(questionType)) {
+    return "NON_TECH";
+  }
+
+  const techStack = forceEnumFormat(args.techStack ?? "N/A");
+  if (NON_TECH_STACKS.has(techStack)) {
+    return "NON_TECH";
+  }
+
+  return "TECH";
 };
 
 const extractInitialQuestions = async (
@@ -213,22 +246,29 @@ const toFinalAssessmentRow = (args: {
   assessmentDate: string;
   product: string;
 }): Record<string, string> => {
-  const techStacks = args.item.question_concept ?? args.item.category ?? "Uncategorized";
+  const techStacks = args.item.question_concept ?? args.item.category ?? "";
+  const questionType = forceEnumFormat(args.item.question_type ?? "");
+  const normalizedTechStacks = forceEnumFormat(techStacks);
 
   return {
     job_id: args.jobId,
     company_name: args.companyName,
     questions: String(args.item.question_text ?? ""),
-    question_type: forceEnumFormat(args.item.question_type ?? "ASSESSMENT"),
-    tech_stacks: forceEnumFormat(techStacks),
-    topic: forceEnumFormat(args.item.topic ?? "N/A"),
-    sub_topic: forceEnumFormat(args.item.sub_topic ?? "N/A"),
-    difficulty_level: forceEnumFormat(args.item.difficulty ?? "MEDIUM"),
-    curriculum_coverage: forceEnumFormat(args.item.curriculum_coverage ?? "N/A"),
+    question_type: questionType,
+    tech_stacks: normalizedTechStacks,
+    topic: forceEnumFormat(args.item.topic ?? ""),
+    sub_topic: forceEnumFormatOrEmpty(args.item.sub_topic ?? ""),
+    difficulty_level: forceEnumFormat(args.item.difficulty ?? ""),
+    curriculum_coverage: forceEnumFormatOrEmpty(args.item.curriculum_coverage ?? ""),
     question_uid: randomUUID(),
     assessment_date: args.assessmentDate,
     question_creation_datetime: nowDateTime(),
     product: args.product,
+    "tech/non-tech": resolveTechNonTech({
+      providedValue: args.item.tech_non_tech,
+      questionType,
+      techStack: normalizedTechStacks,
+    }),
   };
 };
 
@@ -294,6 +334,16 @@ const orderRows = (rows: Array<Record<string, string>>): Array<Record<string, st
   });
 };
 
+const toBigQueryRows = (rows: Array<Record<string, string>>): Array<Record<string, string>> => {
+  return rows.map((row) => {
+    const normalized = { ...row };
+    const techNonTechValue = normalized["tech/non-tech"] ?? "N/A";
+    delete normalized["tech/non-tech"];
+    normalized.tech_non_tech = techNonTechValue;
+    return normalized;
+  });
+};
+
 export const analyzeAssessmentIndividual = async (args: {
   rows: AssessmentIndividualInput[];
   files: Map<string, Express.Multer.File>;
@@ -356,7 +406,7 @@ export const analyzeAssessmentIndividual = async (args: {
     args.onStatus?.("Saving assessment results to BigQuery...");
     savedToBigQuery = await appendRowsToBigQuery({
       tableName: BIGQUERY_TABLE_NAMES.assessments,
-      rows: orderedRows,
+      rows: toBigQueryRows(orderedRows),
     });
   } else {
     args.onStatus?.("BigQuery save is disabled in settings. Skipping BigQuery save.");
@@ -440,7 +490,7 @@ export const analyzeAssessmentZip = async (args: {
     args.onStatus?.("Saving assessment results to BigQuery...");
     savedToBigQuery = await appendRowsToBigQuery({
       tableName: BIGQUERY_TABLE_NAMES.assessments,
-      rows: orderedRows,
+      rows: toBigQueryRows(orderedRows),
     });
   } else {
     args.onStatus?.("BigQuery save is disabled in settings. Skipping BigQuery save.");
