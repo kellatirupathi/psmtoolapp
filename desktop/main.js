@@ -76,6 +76,19 @@ const parseEnvFile = (filePath) => {
   return values;
 };
 
+const normalizeAsarPath = (value) => {
+  if (!value) return value;
+  return value.replace(/app\.asar([\\/])/g, "app.asar.unpacked$1");
+};
+
+const resolveExecutablePath = (value) => {
+  if (!value) return "";
+  const normalized = normalizeAsarPath(value);
+  if (fs.existsSync(normalized)) return normalized;
+  if (fs.existsSync(value)) return value;
+  return normalized || value;
+};
+
 const loadDesktopEnvOverrides = () => {
   ensureUserDesktopEnv();
   const candidates = [
@@ -109,13 +122,13 @@ const applyDesktopRuntimeEnv = () => {
   process.env.CURRICULUM_PATH = process.env.CURRICULUM_PATH || resolveAppPath("curriculum.txt");
 
   if (!process.env.FFMPEG_PATH && ffmpegPath) {
-    process.env.FFMPEG_PATH = ffmpegPath;
+    process.env.FFMPEG_PATH = resolveExecutablePath(ffmpegPath);
   }
 
   const ffprobePath =
     typeof ffprobeStatic === "string" ? ffprobeStatic : ffprobeStatic?.path;
   if (!process.env.FFPROBE_PATH && ffprobePath) {
-    process.env.FFPROBE_PATH = ffprobePath;
+    process.env.FFPROBE_PATH = resolveExecutablePath(ffprobePath);
   }
 };
 

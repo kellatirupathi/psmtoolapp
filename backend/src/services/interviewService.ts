@@ -659,7 +659,9 @@ export const runInterviewAnalyzer = async (args: {
   const storageSettings = await getStorageSettings();
 
   if (!checkFfmpegInstalled()) {
-    throw new Error("FFmpeg is not installed.");
+    throw new Error(
+      "FFmpeg is unavailable. Reinstall/update the desktop app, or install ffmpeg in system PATH.",
+    );
   }
 
   args.onStatus?.("Loading curriculum and prompts...");
@@ -758,7 +760,9 @@ export const runVideoUploader = async (args: {
   }
 
   if (!checkFfmpegInstalled()) {
-    throw new Error("FFmpeg is not installed.");
+    throw new Error(
+      "FFmpeg is unavailable. Reinstall/update the desktop app, or install ffmpeg in system PATH.",
+    );
   }
 
   args.onStatus?.("Loading curriculum and prompts...");

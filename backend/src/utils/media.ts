@@ -2,18 +2,88 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-const FFMPEG_BIN = process.env.FFMPEG_PATH?.trim() || "ffmpeg";
-const FFPROBE_BIN = process.env.FFPROBE_PATH?.trim() || "ffprobe";
+const normalizeAsarPath = (value: string): string => {
+  if (!value) return value;
+  return value.replace(/app\.asar([\\/])/g, "app.asar.unpacked$1");
+};
+
+const uniqueCandidates = (values: string[]): string[] => {
+  const seen = new Set<string>();
+  const output: string[] = [];
+
+  for (const value of values.map((item) => item.trim()).filter(Boolean)) {
+    if (!seen.has(value)) {
+      seen.add(value);
+      output.push(value);
+    }
+  }
+
+  return output;
+};
+
+const getBinaryCandidates = (primaryPath: string | undefined, fallbackName: string): string[] => {
+  const primary = primaryPath?.trim() ?? "";
+  if (!primary) {
+    return [fallbackName];
+  }
+
+  const normalizedPrimary = normalizeAsarPath(primary);
+  return uniqueCandidates([normalizedPrimary, primary, fallbackName]);
+};
+
+const FFMPEG_CANDIDATES = getBinaryCandidates(process.env.FFMPEG_PATH, "ffmpeg");
+const FFPROBE_CANDIDATES = getBinaryCandidates(process.env.FFPROBE_PATH, "ffprobe");
+
+type MediaBinaries = {
+  ffmpeg: string;
+  ffprobe: string;
+};
+
+let resolvedBinaries: MediaBinaries | null | undefined;
+
+const isExecutable = (bin: string): boolean => {
+  const result = spawnSync(bin, ["-version"], { stdio: "ignore" });
+  return result.status === 0;
+};
+
+const resolveFirstAvailable = (candidates: string[]): string | null => {
+  for (const candidate of candidates) {
+    if (isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+};
+
+const getMediaBinaries = (): MediaBinaries | null => {
+  if (resolvedBinaries !== undefined) {
+    return resolvedBinaries;
+  }
+
+  const ffmpeg = resolveFirstAvailable(FFMPEG_CANDIDATES);
+  const ffprobe = resolveFirstAvailable(FFPROBE_CANDIDATES);
+
+  if (!ffmpeg || !ffprobe) {
+    resolvedBinaries = null;
+    return null;
+  }
+
+  resolvedBinaries = { ffmpeg, ffprobe };
+  return resolvedBinaries;
+};
 
 export const checkFfmpegInstalled = (): boolean => {
-  const ffmpeg = spawnSync(FFMPEG_BIN, ["-version"], { stdio: "ignore" });
-  const ffprobe = spawnSync(FFPROBE_BIN, ["-version"], { stdio: "ignore" });
-  return ffmpeg.status === 0 && ffprobe.status === 0;
+  return Boolean(getMediaBinaries());
 };
 
 export const getMediaDuration = (mediaPath: string): number | null => {
+  const binaries = getMediaBinaries();
+  if (!binaries) {
+    return null;
+  }
+
   const result = spawnSync(
-    FFPROBE_BIN,
+    binaries.ffprobe,
     [
       "-v",
       "error",
@@ -56,7 +126,15 @@ export const validateVideoFile = (
 };
 
 const runFfmpegCommand = (args: string[]): { ok: boolean; errorText: string } => {
-  const result = spawnSync(FFMPEG_BIN, args, { encoding: "utf8" });
+  const binaries = getMediaBinaries();
+  if (!binaries) {
+    return {
+      ok: false,
+      errorText: "FFmpeg/FFprobe binaries are not available.",
+    };
+  }
+
+  const result = spawnSync(binaries.ffmpeg, args, { encoding: "utf8" });
   if (result.status === 0) {
     return { ok: true, errorText: "" };
   }
