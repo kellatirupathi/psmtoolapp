@@ -5,6 +5,7 @@ import { AssessmentsPage } from "./pages/AssessmentsPage";
 import { DocumentationPage } from "./pages/DocumentationPage";
 import { DrilldownPage } from "./pages/DrilldownPage";
 import { InterviewPage } from "./pages/InterviewPage";
+import { BigQueryPage } from "./pages/BigQueryPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { AiProvider, AppConfig } from "./types";
 import "./App.css";
@@ -22,15 +23,19 @@ const fallbackConfig: AppConfig = {
     "Intensive Offline",
     "Experienced Hiring",
   ],
-  pages: ["Interview analyser", "Drilldown", "Assessments", "Assignments"],
+  pages: ["Interview analyser", "Drilldown", "Assessments", "Assignments", "Settings", "BigQuery"],
   interviewModules: ["Interview_analyser", "Video_uploader"],
   desktopDownloadUrl: "",
 };
 
 type RouteMeta = {
-  key: "interview" | "drilldown" | "assessments" | "assignments" | "settings";
+  key: "interview" | "drilldown" | "assessments" | "assignments" | "bigquery" | "settings";
   label: string;
   path: string;
+};
+
+const routeUsesApiQuery = (routeKey: RouteMeta["key"]): boolean => {
+  return routeKey === "interview" || routeKey === "drilldown" || routeKey === "assessments" || routeKey === "assignments";
 };
 
 const APP_ROUTES: RouteMeta[] = [
@@ -39,6 +44,7 @@ const APP_ROUTES: RouteMeta[] = [
   { key: "assessments", label: "Assessments", path: "/assessments" },
   { key: "assignments", label: "Assignments", path: "/assignments" },
   { key: "settings", label: "Settings", path: "/settings" },
+  { key: "bigquery", label: "BigQuery", path: "/bigquery" },
 ];
 
 const DEFAULT_ROUTE: RouteMeta = APP_ROUTES[0];
@@ -145,10 +151,18 @@ export default function App() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const selectedProvider = useMemo(
-    () => queryValueToProvider(new URLSearchParams(locationState.search).get("api")),
-    [locationState.search],
+  const [selectedProvider, setSelectedProvider] = useState<AiProvider>(() =>
+    queryValueToProvider(new URLSearchParams(window.location.search).get("api")),
   );
+
+  useEffect(() => {
+    const apiValue = new URLSearchParams(locationState.search).get("api");
+    if (!apiValue) {
+      return;
+    }
+
+    setSelectedProvider(queryValueToProvider(apiValue));
+  }, [locationState.search]);
 
   const selectedInterviewModule = useMemo(
     () => getInterviewModuleFromQuery(locationState.search, config.interviewModules),
@@ -161,11 +175,16 @@ export default function App() {
     }
 
     const params = new URLSearchParams(locationState.search);
-    const canonicalApi = providerToQueryValue(selectedProvider);
     let shouldReplace = currentRoute === null;
 
-    if (params.get("api") !== canonicalApi) {
-      params.set("api", canonicalApi);
+    if (routeUsesApiQuery(activeRoute.key)) {
+      const canonicalApi = providerToQueryValue(selectedProvider);
+      if (params.get("api") !== canonicalApi) {
+        params.set("api", canonicalApi);
+        shouldReplace = true;
+      }
+    } else if (params.has("api")) {
+      params.delete("api");
       shouldReplace = true;
     }
 
@@ -232,7 +251,9 @@ export default function App() {
 
   const handleNavigateRoute = useCallback((route: RouteMeta): void => {
     const params = new URLSearchParams();
-    params.set("api", providerToQueryValue(selectedProvider));
+    if (routeUsesApiQuery(route.key)) {
+      params.set("api", providerToQueryValue(selectedProvider));
+    }
 
     if (route.key === "interview") {
       params.set("module", moduleToQueryValue(selectedInterviewModule));
@@ -246,7 +267,17 @@ export default function App() {
       return;
     }
 
+    setSelectedProvider(provider);
+
     const params = new URLSearchParams(locationState.search);
+
+    if (!routeUsesApiQuery(activeRoute.key)) {
+      params.delete("api");
+      params.delete("module");
+      navigateTo(activeRoute.path, params);
+      return;
+    }
+
     params.set("api", providerToQueryValue(provider));
 
     if (activeRoute.key === "interview") {
@@ -312,6 +343,10 @@ export default function App() {
       );
     }
 
+    if (activeRoute.key === "bigquery") {
+      return <BigQueryPage />;
+    }
+
     return (
       <InterviewPage
         product={selectedProduct}
@@ -361,6 +396,8 @@ export default function App() {
 
         <div className="nav-buttons">
           {APP_ROUTES.map((route) => (
+            // Keep BigQuery route accessible by URL (/bigquery) but hide its sidebar button for now.
+            route.key === "bigquery" ? null : (
             <button
               key={route.key}
               className={activeRoute.key === route.key ? "nav-button active" : "nav-button"}
@@ -368,6 +405,7 @@ export default function App() {
             >
               {route.label}
             </button>
+            )
           ))}
         </div>
 
@@ -414,7 +452,7 @@ export default function App() {
             <h2>{config.appName}</h2>
             <p>
               Page: <strong>{activeRoute.label}</strong>
-              {activeRoute.key !== "settings" && (
+              {activeRoute.key !== "settings" && activeRoute.key !== "bigquery" && (
                 <>
                   {" "}
                   | Product: <strong>{selectedProduct}</strong> | API:{" "}

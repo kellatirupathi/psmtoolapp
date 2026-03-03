@@ -7,6 +7,30 @@ export type AppConfig = {
   desktopDownloadUrl?: string;
 };
 
+export type BigQueryTableSummary = {
+  tableName: string;
+  rowCount: string;
+  sizeBytes: string;
+  lastModifiedTime: string;
+};
+
+export type BigQueryTableListResponse = {
+  projectId: string;
+  datasetId: string;
+  tables: BigQueryTableSummary[];
+};
+
+export type BigQueryTablePreviewResponse = {
+  projectId: string;
+  datasetId: string;
+  tableName: string;
+  headers: string[];
+  rows: Array<Record<string, string>>;
+  totalRows: string;
+  pageToken: string;
+  limit: number;
+};
+
 export type AiProvider = "mistral" | "openai";
 
 export type ProviderSettingsEntry = {

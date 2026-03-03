@@ -4,6 +4,8 @@ import type {
   AppConfig,
   AssignmentInputRow,
   AssessmentIndividualRow,
+  BigQueryTableListResponse,
+  BigQueryTablePreviewResponse,
   ProviderSettings,
   AssessmentZipRow,
   InterviewInputRow,
@@ -133,6 +135,54 @@ export const saveProviderSettings = async (settings: ProviderSettings): Promise<
   }, CONFIG_TIMEOUT_MS);
   await assertResponse(response, url);
   return parseJson<ProviderSettings>(response, url);
+};
+
+export const fetchBigQueryTables = async (datasetId?: string): Promise<BigQueryTableListResponse> => {
+  const params = new URLSearchParams();
+  const normalizedDatasetId = String(datasetId ?? "").trim();
+  if (normalizedDatasetId.length > 0) {
+    params.set("datasetId", normalizedDatasetId);
+  }
+
+  const query = params.toString();
+  const path = query.length > 0 ? `/bigquery/tables?${query}` : "/bigquery/tables";
+  const url = toApiUrl(path);
+  const response = await fetchWithTimeout(url, undefined, CONFIG_TIMEOUT_MS);
+  await assertResponse(response, url);
+  return parseJson<BigQueryTableListResponse>(response, url);
+};
+
+export const fetchBigQueryTablePreview = async (args: {
+  tableName: string;
+  datasetId?: string;
+  limit?: number;
+  pageToken?: string;
+}): Promise<BigQueryTablePreviewResponse> => {
+  const tableName = encodeURIComponent(String(args.tableName ?? "").trim());
+  const params = new URLSearchParams();
+
+  const normalizedDatasetId = String(args.datasetId ?? "").trim();
+  if (normalizedDatasetId.length > 0) {
+    params.set("datasetId", normalizedDatasetId);
+  }
+
+  if (typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0) {
+    params.set("limit", String(Math.round(args.limit)));
+  }
+
+  const pageToken = String(args.pageToken ?? "").trim();
+  if (pageToken.length > 0) {
+    params.set("pageToken", pageToken);
+  }
+
+  const query = params.toString();
+  const path = query.length > 0
+    ? `/bigquery/tables/${tableName}/preview?${query}`
+    : `/bigquery/tables/${tableName}/preview`;
+  const url = toApiUrl(path);
+  const response = await fetchWithTimeout(url, undefined, CONFIG_TIMEOUT_MS);
+  await assertResponse(response, url);
+  return parseJson<BigQueryTablePreviewResponse>(response, url);
 };
 
 export const fetchJobStatus = async (jobId: string): Promise<JobStatusResponse> => {

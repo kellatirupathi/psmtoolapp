@@ -224,8 +224,7 @@ const getServiceAccountFromJsonEnv = (envKey: string): ServiceAccountCredentials
   }
 };
 
-const getServiceAccountFromFileEnv = (envKey: string): ServiceAccountCredentials | null => {
-  const filePath = process.env[envKey];
+const getServiceAccountFromFilePath = (filePath: string | undefined): ServiceAccountCredentials | null => {
   if (!filePath || !fs.existsSync(filePath)) {
     return null;
   }
@@ -236,6 +235,25 @@ const getServiceAccountFromFileEnv = (envKey: string): ServiceAccountCredentials
   } catch {
     return null;
   }
+};
+
+const getServiceAccountFromFileEnv = (envKey: string): ServiceAccountCredentials | null => {
+  return getServiceAccountFromFilePath(process.env[envKey]);
+};
+
+const DEFAULT_BIGQUERY_SERVICE_ACCOUNT_FILES = [
+  path.resolve(process.cwd(), "kossip-helpers.json"),
+];
+
+const getBigQueryServiceAccountFromDefaults = (): ServiceAccountCredentials | null => {
+  for (const filePath of DEFAULT_BIGQUERY_SERVICE_ACCOUNT_FILES) {
+    const credentials = getServiceAccountFromFilePath(filePath);
+    if (credentials) {
+      return credentials;
+    }
+  }
+
+  return null;
 };
 
 export const getServiceAccountCredentials = (): ServiceAccountCredentials | null => {
@@ -259,7 +277,8 @@ export const getBigQueryServiceAccountCredentials = (): ServiceAccountCredential
   return (
     getServiceAccountFromJsonEnv("GCP_BIGQUERY_SERVICE_ACCOUNT_JSON") ??
     getServiceAccountFromFileEnv("GCP_BIGQUERY_SERVICE_ACCOUNT_FILE") ??
-    getServiceAccountCredentials()
+    getServiceAccountCredentials() ??
+    getBigQueryServiceAccountFromDefaults()
   );
 };
 

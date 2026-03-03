@@ -10,6 +10,7 @@ import assessmentsRoutes from "./routes/assessments";
 import interviewRoutes from "./routes/interview";
 import jobsRoutes from "./routes/jobs";
 import settingsRoutes from "./routes/settings";
+import bigQueryRoutes from "./routes/bigquery";
 
 const app = express();
 const apiBodyLimit = process.env.API_BODY_LIMIT ?? "200mb";
@@ -61,6 +62,7 @@ app.use("/api/assignments", assignmentsRoutes);
 app.use("/api/assessments", assessmentsRoutes);
 app.use("/api/interview", interviewRoutes);
 app.use("/api/jobs", jobsRoutes);
+app.use("/api/bigquery", bigQueryRoutes);
 
 app.use((error: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (error?.status === 413 || error?.type === "entity.too.large") {
