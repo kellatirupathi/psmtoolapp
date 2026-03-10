@@ -11,6 +11,7 @@ const BACKEND_START_TIMEOUT_MS = 30000;
 const HEALTH_CHECK_INTERVAL_MS = 600;
 const UPDATE_CHECK_DELAY_MS = 4000;
 const DESKTOP_ENV_FILE = "desktop.env";
+const DESKTOP_ICON_FILE = "favicon.ico";
 
 let mainWindow = null;
 let backendLoaded = false;
@@ -461,12 +462,14 @@ const setupDesktopIpc = () => {
 
 const createMainWindow = () => {
   const indexPath = resolveAppPath("build", "index.html");
+  const windowIconPath = resolveAppPath("build", DESKTOP_ICON_FILE);
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
     minWidth: 1120,
     minHeight: 760,
     autoHideMenuBar: true,
+    icon: fs.existsSync(windowIconPath) ? windowIconPath : undefined,
     show: false,
     webPreferences: {
       preload: resolveAppPath("desktop", "preload.js"),
