@@ -115,3 +115,18 @@ Provide ONLY the raw JSON array. No markdown.
   - topic = LEARNING_PROGRESS
   - sub_topic = 
 - If a concept appears only in answer_text and not in question_text, do not use it.
+
+### 6. HARDENING RULES (NON-NEGOTIABLE)
+- Apply these grounding rules to `question_concept` (tech stack), `topic`, and `sub_topic`.
+- For stack/topic/sub_topic, NEVER use evidence that appears only in `answer_text`.
+- If `question_text` does not explicitly mention a technical stack/concept, force:
+  - `question_concept = GENERAL`
+  - `topic = PROJECT_DISCUSSION` (for project-experience style questions) OR `LEARNING_PROGRESS` (for progress-style questions)
+  - `sub_topic = `
+- For project questions like "Tell me about your project" where stack is not named in `question_text`, do NOT infer stack from `answer_text`; keep `question_concept = GENERAL`.
+- Do NOT generate new umbrella topics such as `WEB_DEVELOPMENT`, `FRONTEND_DEVELOPMENT`, `BACKEND_DEVELOPMENT`.
+- Prefer stable canonical topic names; avoid duplicates/synonyms for the same concept.
+  - Example canonicalization for React hooks:
+    - Use `HOOKS` as canonical topic.
+    - Do NOT create alternate topic spellings like `REACT_HOOKS` for the same meaning.
+- If uncertain between multiple topic labels for the same meaning, choose the more generic canonical label and keep `sub_topic` empty instead of inventing a new label.
