@@ -41,7 +41,11 @@ type JobRunnerControl = {
 };
 
 const jobs = new Map<string, JobRecord>();
-const JOB_TTL_MS = 1000 * 60 * 30;
+const parseTtlMinutes = (): number => {
+  const raw = Number(process.env.JOB_TTL_MINUTES);
+  return Number.isFinite(raw) && raw > 0 ? raw : 180;
+};
+const JOB_TTL_MS = 1000 * 60 * parseTtlMinutes();
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -108,7 +112,7 @@ export const createJob = <T>(
     },
   };
 
-  void (async () => {
+  const runJob = async (): Promise<void> => {
     const current = jobs.get(id) as JobRecord<T> | undefined;
     if (!current) return;
     if (current.cancelRequested) {
@@ -159,7 +163,17 @@ export const createJob = <T>(
       failed.progress = undefined;
       failed.updatedAt = nowIso();
     }
-  })();
+  };
+
+  void runJob().catch((error) => {
+    const broken = jobs.get(id) as JobRecord<T> | undefined;
+    if (!broken) return;
+    broken.state = "error";
+    broken.error = `Job runner crashed: ${String(error)}`;
+    broken.message = broken.error;
+    broken.progress = undefined;
+    broken.updatedAt = nowIso();
+  });
 
   return initial;
 };

@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import {
+  AUDIO_CHUNK_DURATION_SECONDS,
+  OPENAI_AUDIO_CHUNK_DURATION_SECONDS,
+  OPENAI_AUDIO_SINGLE_SHOT_MAX_BYTES,
+} from "../config";
 
 const normalizeAsarPath = (value: string): string => {
   if (!value) return value;
@@ -236,7 +241,7 @@ export const extractAudioFile = (videoPath: string, audioPath: string): void => 
 
 export const splitAudioIntoChunks = (
   audioPath: string,
-  chunkDurationSeconds = 600,
+  chunkDurationSeconds = AUDIO_CHUNK_DURATION_SECONDS,
 ): string[] => {
   const duration = getMediaDuration(audioPath);
   if (!duration || duration <= chunkDurationSeconds) {
@@ -281,6 +286,28 @@ export const splitAudioIntoChunks = (
   }
 
   return chunks.length > 0 ? chunks : [audioPath];
+};
+
+export const splitAudioForProvider = (
+  audioPath: string,
+  provider: "mistral" | "openai",
+): string[] => {
+  if (provider === "mistral") {
+    return splitAudioIntoChunks(audioPath, AUDIO_CHUNK_DURATION_SECONDS);
+  }
+
+  let fileSizeBytes = 0;
+  try {
+    fileSizeBytes = fs.statSync(audioPath).size;
+  } catch {
+    fileSizeBytes = 0;
+  }
+
+  if (fileSizeBytes > 0 && fileSizeBytes <= OPENAI_AUDIO_SINGLE_SHOT_MAX_BYTES) {
+    return [audioPath];
+  }
+
+  return splitAudioIntoChunks(audioPath, OPENAI_AUDIO_CHUNK_DURATION_SECONDS);
 };
 
 export const formatTimestampClean = (secondsInput: number): string => {

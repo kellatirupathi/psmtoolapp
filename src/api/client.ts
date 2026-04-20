@@ -4,6 +4,8 @@ import type {
   AppConfig,
   AssignmentInputRow,
   AssessmentIndividualRow,
+  BigQueryCsvUploadResponse,
+  BigQueryTableSchemaResponse,
   BigQueryTableListResponse,
   BigQueryTablePreviewResponse,
   ProviderSettings,
@@ -183,6 +185,52 @@ export const fetchBigQueryTablePreview = async (args: {
   const response = await fetchWithTimeout(url, undefined, CONFIG_TIMEOUT_MS);
   await assertResponse(response, url);
   return parseJson<BigQueryTablePreviewResponse>(response, url);
+};
+
+export const fetchBigQueryTableSchema = async (args: {
+  tableName: string;
+  datasetId?: string;
+}): Promise<BigQueryTableSchemaResponse> => {
+  const tableName = encodeURIComponent(String(args.tableName ?? "").trim());
+  const params = new URLSearchParams();
+
+  const normalizedDatasetId = String(args.datasetId ?? "").trim();
+  if (normalizedDatasetId.length > 0) {
+    params.set("datasetId", normalizedDatasetId);
+  }
+
+  const query = params.toString();
+  const path = query.length > 0
+    ? `/bigquery/tables/${tableName}/schema?${query}`
+    : `/bigquery/tables/${tableName}/schema`;
+  const url = toApiUrl(path);
+  const response = await fetchWithTimeout(url, undefined, CONFIG_TIMEOUT_MS);
+  await assertResponse(response, url);
+  return parseJson<BigQueryTableSchemaResponse>(response, url);
+};
+
+export const uploadCsvRowsToBigQuery = async (args: {
+  tableName: string;
+  datasetId?: string;
+  headers: string[];
+  rows: Array<Record<string, string>>;
+}): Promise<BigQueryCsvUploadResponse> => {
+  const tableName = encodeURIComponent(String(args.tableName ?? "").trim());
+  const url = toApiUrl(`/bigquery/tables/${tableName}/upload-csv`);
+  const response = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      datasetId: args.datasetId,
+      headers: args.headers,
+      rows: args.rows,
+    }),
+  }, START_REQUEST_TIMEOUT_MS);
+
+  await assertResponse(response, url);
+  return parseJson<BigQueryCsvUploadResponse>(response, url);
 };
 
 export const fetchJobStatus = async (jobId: string): Promise<JobStatusResponse> => {

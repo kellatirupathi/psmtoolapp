@@ -6,13 +6,30 @@ import type { BigQueryTableSummary } from "../types";
 const DEFAULT_PREVIEW_LIMIT = 50;
 
 const formatTimestamp = (value: string): string => {
-  const asNumber = Number(value);
-  const millis = Number.isFinite(asNumber) ? asNumber : Number.NaN;
-  if (!Number.isFinite(millis) || millis <= 0) {
-    return "";
+  if (!value) return "";
+  const trimmed = String(value).trim();
+  if (!trimmed) return "";
+
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    let millis = numeric;
+    if (millis > 1e15) {
+      millis = millis / 1000;
+    } else if (millis < 1e11) {
+      millis = millis * 1000;
+    }
+    const date = new Date(millis);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleString();
+    }
   }
 
-  return new Date(millis).toLocaleString();
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleString();
+  }
+
+  return trimmed;
 };
 
 export function BigQueryPage() {
@@ -29,7 +46,7 @@ export function BigQueryPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const loadTablePreview = useCallback(async (tableName: string, resetPageToken = true) => {
+  const loadTablePreview = useCallback(async (tableName: string, pageToken?: string) => {
     const trimmedTable = tableName.trim();
     if (!trimmedTable) {
       setPreviewRows([]);
@@ -47,7 +64,7 @@ export function BigQueryPage() {
         tableName: trimmedTable,
         datasetId: activeDatasetId,
         limit: previewLimit,
-        pageToken: resetPageToken ? undefined : previewPageToken,
+        pageToken,
       });
 
       setPreviewRows(response.rows);
@@ -60,7 +77,7 @@ export function BigQueryPage() {
     } finally {
       setLoadingPreview(false);
     }
-  }, [activeDatasetId, previewLimit, previewPageToken]);
+  }, [activeDatasetId, previewLimit]);
 
   const loadTables = useCallback(async () => {
     try {
@@ -82,10 +99,11 @@ export function BigQueryPage() {
         return;
       }
 
-      const selected = response.tables.some((table) => table.tableName === selectedTable)
-        ? selectedTable
-        : response.tables[0].tableName;
-      setSelectedTable(selected);
+      setSelectedTable((prev) =>
+        response.tables.some((table) => table.tableName === prev)
+          ? prev
+          : response.tables[0].tableName
+      );
       setStatus(`Found ${response.tables.length} table(s) in dataset ${response.datasetId}.`);
     } catch (err) {
       setTables([]);
@@ -98,7 +116,7 @@ export function BigQueryPage() {
     } finally {
       setLoadingTables(false);
     }
-  }, [datasetIdInput, selectedTable]);
+  }, [datasetIdInput]);
 
   useEffect(() => {
     void loadTables();
@@ -112,7 +130,7 @@ export function BigQueryPage() {
       return;
     }
 
-    void loadTablePreview(selectedTable, true);
+    void loadTablePreview(selectedTable);
   }, [loadTablePreview, selectedTable]);
 
   const sortedTables = useMemo(
@@ -203,7 +221,7 @@ export function BigQueryPage() {
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() => void loadTablePreview(selectedTable, true)}
+                  onClick={() => void loadTablePreview(selectedTable)}
                   disabled={loadingPreview || !selectedTable}
                 >
                   {loadingPreview ? "Loading..." : "Reload Preview"}
@@ -211,7 +229,7 @@ export function BigQueryPage() {
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() => void loadTablePreview(selectedTable, false)}
+                  onClick={() => void loadTablePreview(selectedTable, previewPageToken)}
                   disabled={loadingPreview || !selectedTable || !previewPageToken}
                 >
                   Next Page

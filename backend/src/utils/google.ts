@@ -24,6 +24,10 @@ const getAuthClient = (scopes: string[]) => {
   });
 };
 
+const getDriveServiceAccountEmail = (): string | null => {
+  return getSheetsServiceAccountCredentials()?.client_email ?? null;
+};
+
 const getSheets = () => {
   const auth = getAuthClient(DEFAULT_SHEETS_SCOPES);
   if (!auth) return null;
@@ -215,9 +219,20 @@ export const downloadDriveFileToPath = async (
 
     return "Success";
   } catch (error) {
-    const text = String(error);
-    if (text.includes("File not found")) {
-      return "File Not Found (Check Sharing)";
+    const text = error instanceof Error ? error.message : String(error);
+    const serviceAccountEmail = getDriveServiceAccountEmail();
+    const shareHint = serviceAccountEmail
+      ? `share the file with ${serviceAccountEmail} (Viewer access) or set link sharing to "Anyone with the link"`
+      : `share the file with the backend service account, or set link sharing to "Anyone with the link"`;
+
+    if (/file not found/i.test(text)) {
+      return `File not accessible — ${shareHint}`;
+    }
+    if (/insufficient.*permission|forbidden|403/i.test(text)) {
+      return `Permission denied — ${shareHint}`;
+    }
+    if (/invalid.*credentials|unauthorized|401/i.test(text)) {
+      return "Drive credentials invalid (check service account configuration)";
     }
     return text;
   }

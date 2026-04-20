@@ -1,3 +1,4 @@
+import { POLL_INTERVAL_MS } from "../config";
 import { useRef, useState } from "react";
 import { cancelJob, getDrilldownSampleTemplateUrl, startDrilldownJob } from "../api/client";
 import { ResultTable } from "../components/ResultTable";
@@ -63,7 +64,7 @@ export function DrilldownPage({
             setResult(status.partialResult);
           }
         },
-        1200,
+        POLL_INTERVAL_MS,
         { signal: pollController.signal },
       );
       setResult(response);
@@ -154,7 +155,7 @@ export function DrilldownPage({
         {rows.length > 0 && <ResultTable rows={rows.slice(0, 10)} maxHeight={280} />}
 
         <div className="button-row">
-          <button className="primary-button" onClick={start} disabled={loading || rows.length === 0}>
+          <button className="primary-button" onClick={() => void start()} disabled={loading || rows.length === 0}>
             {loading ? "Running Drilldown Analysis..." : "Start Live Analysis"}
           </button>
           {loading && (

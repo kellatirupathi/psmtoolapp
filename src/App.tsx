@@ -6,6 +6,7 @@ import { DocumentationPage } from "./pages/DocumentationPage";
 import { DrilldownPage } from "./pages/DrilldownPage";
 import { InterviewPage } from "./pages/InterviewPage";
 import { BigQueryPage } from "./pages/BigQueryPage";
+import { BigQueryUploadPage } from "./pages/BigQueryUploadPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { AiProvider, AppConfig } from "./types";
 import "./App.css";
@@ -29,7 +30,7 @@ const fallbackConfig: AppConfig = {
 };
 
 type RouteMeta = {
-  key: "interview" | "drilldown" | "assessments" | "assignments" | "bigquery" | "settings";
+  key: "interview" | "drilldown" | "assessments" | "assignments" | "bigquery" | "bigqueryUpload" | "settings";
   label: string;
   path: string;
 };
@@ -45,6 +46,7 @@ const APP_ROUTES: RouteMeta[] = [
   { key: "assignments", label: "Assignments", path: "/assignments" },
   { key: "settings", label: "Settings", path: "/settings" },
   { key: "bigquery", label: "BigQuery", path: "/bigquery" },
+  { key: "bigqueryUpload", label: "BigQuery Upload", path: "/bigquery-upload" },
 ];
 
 const DEFAULT_ROUTE: RouteMeta = APP_ROUTES[0];
@@ -347,6 +349,21 @@ export default function App() {
       return <BigQueryPage />;
     }
 
+    if (activeRoute.key === "bigqueryUpload") {
+      if (isDesktopRuntime) {
+        return (
+          <div className="page-section">
+            <section className="panel">
+              <h3>BigQuery CSV Upload</h3>
+              <p className="muted">This hidden upload page is available only in the web application.</p>
+            </section>
+          </div>
+        );
+      }
+
+      return <BigQueryUploadPage />;
+    }
+
     return (
       <InterviewPage
         product={selectedProduct}
@@ -362,6 +379,7 @@ export default function App() {
     config.interviewModules,
     handleInterviewModuleChange,
     handleProviderChange,
+    isDesktopRuntime,
     selectedInterviewModule,
     selectedProduct,
     selectedProvider,
@@ -396,8 +414,8 @@ export default function App() {
 
         <div className="nav-buttons">
           {APP_ROUTES.map((route) => (
-            // Keep BigQuery route accessible by URL (/bigquery) but hide its sidebar button for now.
-            route.key === "bigquery" ? null : (
+            // Keep hidden routes accessible by URL but out of the sidebar.
+            route.key === "bigquery" || route.key === "bigqueryUpload" ? null : (
             <button
               key={route.key}
               className={activeRoute.key === route.key ? "nav-button active" : "nav-button"}
@@ -452,7 +470,7 @@ export default function App() {
             <h2>{config.appName}</h2>
             <p>
               Page: <strong>{activeRoute.label}</strong>
-              {activeRoute.key !== "settings" && activeRoute.key !== "bigquery" && (
+              {activeRoute.key !== "settings" && activeRoute.key !== "bigquery" && activeRoute.key !== "bigqueryUpload" && (
                 <>
                   {" "}
                   | Product: <strong>{selectedProduct}</strong> | API:{" "}

@@ -206,19 +206,42 @@ const classifyExtractedQuestions = async (
   const batchSize = 10;
   const merged: ExtractedQuestion[] = [];
 
+  const classifyBatch = async (
+    batch: ExtractedQuestion[],
+  ): Promise<Record<string, unknown>[]> => {
+    if (batch.length === 0) return [];
+    try {
+      return await aiJsonAsArray(
+        runtime,
+        [
+          { role: "system", content: prompt },
+          { role: "user", content: JSON.stringify(batch) },
+        ],
+        { responseAsJsonObject: true, temperature: 0.1, timeoutMs: 90000 },
+      );
+    } catch (error) {
+      if (batch.length <= 1) {
+        throw error;
+      }
+      const mid = Math.floor(batch.length / 2);
+      const [first, second] = await Promise.all([
+        classifyBatch(batch.slice(0, mid)).catch(() => [] as Record<string, unknown>[]),
+        classifyBatch(batch.slice(mid)).catch(() => [] as Record<string, unknown>[]),
+      ]);
+      return [...first, ...second];
+    }
+  };
+
   for (let index = 0; index < qnaList.length; index += batchSize) {
     abortIfCancelled?.();
     const batch = qnaList.slice(index, index + batchSize);
-    const userContent = JSON.stringify(batch);
 
-    const classified = await aiJsonAsArray(
-      runtime,
-      [
-        { role: "system", content: prompt },
-        { role: "user", content: userContent },
-      ],
-      { responseAsJsonObject: true, temperature: 0.1, timeoutMs: 90000 },
-    );
+    let classified: Record<string, unknown>[] = [];
+    try {
+      classified = await classifyBatch(batch);
+    } catch {
+      classified = [];
+    }
     abortIfCancelled?.();
 
     for (const original of batch) {

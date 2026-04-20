@@ -18,8 +18,14 @@ const getMongoDbName = (): string => {
 
 export const getMongoClient = async (): Promise<MongoClient> => {
   if (!clientPromise) {
-    const client = new MongoClient(getMongoUrl());
-    clientPromise = client.connect();
+    const client = new MongoClient(getMongoUrl(), {
+      maxPoolSize: Number(process.env.MONGO_POOL_SIZE) || 20,
+      serverSelectionTimeoutMS: Number(process.env.MONGO_CONNECT_TIMEOUT_MS) || 5000,
+    });
+    clientPromise = client.connect().catch((error) => {
+      clientPromise = null;
+      throw error;
+    });
   }
   return clientPromise;
 };

@@ -1,3 +1,4 @@
+import { POLL_INTERVAL_MS } from "../config";
 import { useRef, useState } from "react";
 import { cancelJob, startAssessmentsIndividualJob, startAssessmentsZipJob } from "../api/client";
 import { ResultTable } from "../components/ResultTable";
@@ -20,15 +21,21 @@ type AssessmentsPageProps = {
   onProviderChange: (provider: AiProvider) => void;
 };
 
-const createZipRow = (index: number): AssessmentZipRow => ({
-  fileField: `zip_file_${index}`,
+let rowCounter = 0;
+const nextRowId = (): string => {
+  rowCounter += 1;
+  return `${Date.now().toString(36)}_${rowCounter}`;
+};
+
+const createZipRow = (): AssessmentZipRow => ({
+  fileField: `zip_file_${nextRowId()}`,
   company_name: "",
   job_id: "",
   assessment_date: new Date().toISOString().slice(0, 10),
 });
 
-const createIndividualRow = (index: number): AssessmentIndividualRow => ({
-  fileField: `individual_file_${index}`,
+const createIndividualRow = (): AssessmentIndividualRow => ({
+  fileField: `individual_file_${nextRowId()}`,
   company_name: "",
   job_id: "",
   assessment_date: new Date().toISOString().slice(0, 10),
@@ -36,8 +43,8 @@ const createIndividualRow = (index: number): AssessmentIndividualRow => ({
 
 export function AssessmentsPage({ product, provider, onProviderChange }: AssessmentsPageProps) {
   const [tab, setTab] = useState<"ZIP File Processor" | "Individual File Processor">("ZIP File Processor");
-  const [zipRows, setZipRows] = useState<AssessmentZipRow[]>([createZipRow(0)]);
-  const [individualRows, setIndividualRows] = useState<AssessmentIndividualRow[]>([createIndividualRow(0)]);
+  const [zipRows, setZipRows] = useState<AssessmentZipRow[]>(() => [createZipRow()]);
+  const [individualRows, setIndividualRows] = useState<AssessmentIndividualRow[]>(() => [createIndividualRow()]);
   const [result, setResult] = useState<ApiResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,11 +53,11 @@ export function AssessmentsPage({ product, provider, onProviderChange }: Assessm
   const pollAbortRef = useRef<AbortController | null>(null);
 
   const addZipRow = (): void => {
-    setZipRows((prev) => [...prev, createZipRow(prev.length)]);
+    setZipRows((prev) => [...prev, createZipRow()]);
   };
 
   const addIndividualRow = (): void => {
-    setIndividualRows((prev) => [...prev, createIndividualRow(prev.length)]);
+    setIndividualRows((prev) => [...prev, createIndividualRow()]);
   };
 
   const runZipAnalysis = async (): Promise<void> => {
@@ -70,7 +77,7 @@ export function AssessmentsPage({ product, provider, onProviderChange }: Assessm
         (status) => {
           setLiveStatus(status.message);
         },
-        1200,
+        POLL_INTERVAL_MS,
         { signal: pollController.signal },
       );
       setResult(response);
@@ -115,7 +122,7 @@ export function AssessmentsPage({ product, provider, onProviderChange }: Assessm
         (status) => {
           setLiveStatus(status.message);
         },
-        1200,
+        POLL_INTERVAL_MS,
         { signal: pollController.signal },
       );
       setResult(response);
@@ -264,7 +271,7 @@ export function AssessmentsPage({ product, provider, onProviderChange }: Assessm
               </button>
               <button
                 className="primary-button"
-                onClick={runZipAnalysis}
+                onClick={() => void runZipAnalysis()}
                 disabled={loading || zipRows.filter((row) => row.file).length === 0}
               >
                 {loading ? "Processing ZIP Files..." : "Start ZIP Extraction"}
@@ -351,7 +358,7 @@ export function AssessmentsPage({ product, provider, onProviderChange }: Assessm
               </button>
               <button
                 className="primary-button"
-                onClick={runIndividualAnalysis}
+                onClick={() => void runIndividualAnalysis()}
                 disabled={loading || individualRows.filter((row) => row.file).length === 0}
               >
                 {loading ? "Processing Files..." : "Submit and Analyze"}

@@ -17,7 +17,7 @@ import {
   extractAudioSegment,
   getMediaDuration,
   mistralSegmentsToCleanText,
-  splitAudioIntoChunks,
+  splitAudioForProvider,
   validateVideoFile,
 } from "../utils/media";
 import { aiChat, aiTranscribeAudio } from "../utils/aiProvider";
@@ -240,7 +240,7 @@ const generateTranscript = async (
   onStatus?: (message: string) => void,
   abortIfCancelled?: () => void,
 ): Promise<void> => {
-  const chunks = splitAudioIntoChunks(audioPath);
+  const chunks = splitAudioForProvider(audioPath, runtime.provider);
   let offset = 0;
   let transcriptBuffer = "";
   const totalChunks = chunks.length;
@@ -249,7 +249,11 @@ const generateTranscript = async (
   for (const chunk of chunks) {
     abortIfCancelled?.();
     chunkIndex += 1;
-    onStatus?.(`Generating transcript chunk ${chunkIndex}/${totalChunks}...`);
+    if (totalChunks === 1) {
+      onStatus?.("Generating transcript...");
+    } else {
+      onStatus?.(`Generating transcript chunk ${chunkIndex}/${totalChunks}...`);
+    }
     const segments = await aiTranscribeAudio(runtime, chunk);
     abortIfCancelled?.();
     transcriptBuffer += `${mistralSegmentsToCleanText(segments, offset)}\n`;
@@ -332,36 +336,132 @@ const downloadFetchResponseToPath = async (
   return true;
 };
 
+const decodeHtmlEntities = (value: string): string =>
+  value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x2F;/g, "/");
+
+const collectCookies = (headers: Headers): string => {
+  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  const rawCookies =
+    typeof getSetCookie === "function"
+      ? getSetCookie.call(headers)
+      : (headers.get("set-cookie") ? [headers.get("set-cookie") as string] : []);
+
+  const jar = new Map<string, string>();
+  for (const raw of rawCookies) {
+    const firstPair = raw.split(";")[0]?.trim();
+    if (!firstPair) continue;
+    const eqIndex = firstPair.indexOf("=");
+    if (eqIndex <= 0) continue;
+    const name = firstPair.slice(0, eqIndex).trim();
+    const value = firstPair.slice(eqIndex + 1).trim();
+    if (name) jar.set(name, value);
+  }
+  return Array.from(jar.entries())
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
+};
+
+const PUBLIC_DOWNLOAD_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+const isHtmlResponse = (response: Response): boolean =>
+  (response.headers.get("content-type") ?? "").toLowerCase().includes("text/html");
+
+const buildConfirmRequestFromHtml = (
+  html: string,
+): { url: string; method: "GET" | "POST"; body?: string } | null => {
+  const formMatch = html.match(/<form[^>]+id="download-form"[\s\S]*?<\/form>/i)
+    ?? html.match(/<form[\s\S]*?<\/form>/i);
+  if (!formMatch) return null;
+  const formHtml = formMatch[0];
+
+  const actionMatch = formHtml.match(/action="([^"]+)"/i);
+  if (!actionMatch) return null;
+  const action = decodeHtmlEntities(actionMatch[1]);
+
+  const methodMatch = formHtml.match(/method="([^"]+)"/i);
+  const method = (methodMatch?.[1] ?? "GET").toUpperCase() === "POST" ? "POST" : "GET";
+
+  const params = new URLSearchParams();
+  const inputRegex = /<input[^>]+name="([^"]+)"[^>]*value="([^"]*)"[^>]*>/gi;
+  let inputMatch: RegExpExecArray | null;
+  while ((inputMatch = inputRegex.exec(formHtml)) !== null) {
+    params.append(decodeHtmlEntities(inputMatch[1]), decodeHtmlEntities(inputMatch[2]));
+  }
+
+  if (method === "POST") {
+    return { url: action, method, body: params.toString() };
+  }
+  const query = params.toString();
+  return { url: query ? `${action}?${query}` : action, method };
+};
+
 const downloadViaPublicDrive = async (
   fileId: string,
   outputPath: string,
   onProgress?: (progress: JobProgress) => void,
 ): Promise<boolean> => {
-  const url = `https://drive.google.com/uc?export=download&id=${fileId}`;
+  const baseHeaders: Record<string, string> = {
+    "user-agent": PUBLIC_DOWNLOAD_USER_AGENT,
+    accept: "*/*",
+  };
+
+  const candidateUrls = [
+    `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`,
+    `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`,
+  ];
 
   try {
-    const response = await fetch(url, { redirect: "follow" });
-    if (!response.ok) {
-      return false;
-    }
+    for (const startUrl of candidateUrls) {
+      let response: Response;
+      try {
+        response = await fetch(startUrl, { redirect: "follow", headers: baseHeaders });
+      } catch {
+        continue;
+      }
+      if (!response.ok) continue;
 
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("text/html")) {
+      if (!isHtmlResponse(response)) {
+        const ok = await downloadFetchResponseToPath(response, outputPath, onProgress);
+        if (ok) return true;
+        continue;
+      }
+
+      const cookies = collectCookies(response.headers);
       const html = await response.text();
-      const tokenMatch = html.match(/confirm=([0-9A-Za-z_\-]+)/);
-      if (!tokenMatch) {
-        return false;
+      const confirmRequest = buildConfirmRequestFromHtml(html);
+      if (!confirmRequest) continue;
+
+      const confirmHeaders: Record<string, string> = { ...baseHeaders };
+      if (cookies) confirmHeaders.cookie = cookies;
+      if (confirmRequest.method === "POST") {
+        confirmHeaders["content-type"] = "application/x-www-form-urlencoded";
       }
 
-      const confirmUrl = `https://drive.google.com/uc?export=download&confirm=${tokenMatch[1]}&id=${fileId}`;
-      const confirmResponse = await fetch(confirmUrl, { redirect: "follow" });
-      if (!confirmResponse.ok) {
-        return false;
+      let confirmResponse: Response;
+      try {
+        confirmResponse = await fetch(confirmRequest.url, {
+          method: confirmRequest.method,
+          redirect: "follow",
+          headers: confirmHeaders,
+          body: confirmRequest.body,
+        });
+      } catch {
+        continue;
       }
-      return downloadFetchResponseToPath(confirmResponse, outputPath, onProgress);
+      if (!confirmResponse.ok) continue;
+      if (isHtmlResponse(confirmResponse)) continue;
+
+      const ok = await downloadFetchResponseToPath(confirmResponse, outputPath, onProgress);
+      if (ok) return true;
     }
-
-    return downloadFetchResponseToPath(response, outputPath, onProgress);
+    return false;
   } catch {
     return false;
   }
@@ -476,12 +576,13 @@ const runQnaPipeline = async (args: {
   args.abortIfCancelled?.();
 
   const deduped = deduplicateQna(raw);
-  const singlePassBatchSize = Math.max(deduped.length, 1);
+  const envBatch = Number(process.env.INTERVIEW_CLASSIFY_BATCH_SIZE);
+  const classifyBatchSize = Number.isFinite(envBatch) && envBatch > 0 ? Math.floor(envBatch) : 12;
   return classifyQnaList(
     args.runtime,
     deduped,
     args.classifyPrompt,
-    singlePassBatchSize,
+    classifyBatchSize,
     args.abortIfCancelled,
   );
 };

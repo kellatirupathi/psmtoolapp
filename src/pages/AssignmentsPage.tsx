@@ -1,3 +1,4 @@
+import { POLL_INTERVAL_MS } from "../config";
 import { useMemo, useRef, useState } from "react";
 import { cancelJob, startAssignmentsJob } from "../api/client";
 import { ResultTable } from "../components/ResultTable";
@@ -72,7 +73,7 @@ export function AssignmentsPage({
         (status) => {
           setLiveStatus(status.message);
         },
-        1200,
+        POLL_INTERVAL_MS,
         { signal: pollController.signal },
       );
       setResult(response);
@@ -185,7 +186,7 @@ export function AssignmentsPage({
         {previewRows.length > 0 && <ResultTable rows={previewRows} maxHeight={280} />}
 
         <div className="button-row">
-          <button className="primary-button" onClick={analyze} disabled={loading || rows.length === 0}>
+          <button className="primary-button" onClick={() => void analyze()} disabled={loading || rows.length === 0}>
             {loading ? "Analyzing Assignments..." : "Analyze Assignments"}
           </button>
           {loading && (

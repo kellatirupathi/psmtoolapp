@@ -46,6 +46,46 @@ export const MISTRAL_CHAT_MAX_RETRIES_PER_KEY = parseNumber(
   4,
 );
 
+export const MISTRAL_TRANSCRIBE_MIN_INTERVAL_SECONDS = parseNumber(
+  process.env.MISTRAL_TRANSCRIBE_MIN_INTERVAL_SECONDS,
+  7,
+);
+
+export const MISTRAL_TRANSCRIBE_MAX_RETRIES = parseNumber(
+  process.env.MISTRAL_TRANSCRIBE_MAX_RETRIES,
+  6,
+);
+
+export const MISTRAL_TRANSCRIBE_MAX_BACKOFF_SECONDS = parseNumber(
+  process.env.MISTRAL_TRANSCRIBE_MAX_BACKOFF_SECONDS,
+  120,
+);
+
+export const AUDIO_CHUNK_DURATION_SECONDS = parseNumber(
+  process.env.AUDIO_CHUNK_DURATION_SECONDS,
+  300,
+);
+
+export const OPENAI_AUDIO_SINGLE_SHOT_MAX_BYTES = parseNumber(
+  process.env.OPENAI_AUDIO_SINGLE_SHOT_MAX_BYTES,
+  24 * 1024 * 1024,
+);
+
+export const OPENAI_AUDIO_CHUNK_DURATION_SECONDS = parseNumber(
+  process.env.OPENAI_AUDIO_CHUNK_DURATION_SECONDS,
+  900,
+);
+
+export const OPENAI_OCR_MAX_RETRIES = parseNumber(
+  process.env.OPENAI_OCR_MAX_RETRIES,
+  4,
+);
+
+export const OPENAI_OCR_MAX_BACKOFF_SECONDS = parseNumber(
+  process.env.OPENAI_OCR_MAX_BACKOFF_SECONDS,
+  60,
+);
+
 export const QNA_CHUNK_SIZE = parseNumber(process.env.QNA_CHUNK_SIZE, 18000);
 export const QNA_CHUNK_OVERLAP = parseNumber(process.env.QNA_CHUNK_OVERLAP, 1200);
 

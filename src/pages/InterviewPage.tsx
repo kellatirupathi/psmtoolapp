@@ -1,3 +1,4 @@
+import { POLL_INTERVAL_MS } from "../config";
 import { useMemo, useRef, useState } from "react";
 import { cancelJob, startInterviewAnalyzerJob, startVideoUploaderJob } from "../api/client";
 import { ResultTable } from "../components/ResultTable";
@@ -126,7 +127,7 @@ function InterviewAnalyzerModule({ product, provider }: { product: string; provi
             setResult(status.partialResult);
           }
         },
-        1200,
+        POLL_INTERVAL_MS,
         { signal: pollController.signal },
       );
       setResult(response);
@@ -238,7 +239,7 @@ function InterviewAnalyzerModule({ product, provider }: { product: string; provi
         <button
           className="primary-button"
           disabled={loading || rows.length === 0 || (validationReport?.summary.errors ?? 0) > 0}
-          onClick={startAnalysis}
+          onClick={() => void startAnalysis()}
         >
           {loading ? "Running Interview Analysis..." : "Start Analysis Pipeline"}
         </button>
@@ -368,7 +369,7 @@ function VideoUploaderModule({ product, provider }: { product: string; provider:
         (status) => {
           setLiveStatus(status.message);
         },
-        1200,
+        POLL_INTERVAL_MS,
         { signal: pollController.signal },
       );
       setResult(response);
@@ -481,7 +482,7 @@ function VideoUploaderModule({ product, provider }: { product: string; provider:
         <button
           className="primary-button"
           disabled={loading || !metadata || !file || (metadataValidation?.summary.errors ?? 0) > 0}
-          onClick={startUploadAnalysis}
+          onClick={() => void startUploadAnalysis()}
         >
           {loading ? "Processing Local Video..." : "Start Local Processing"}
         </button>

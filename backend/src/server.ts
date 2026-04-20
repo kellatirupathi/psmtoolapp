@@ -11,12 +11,40 @@ import interviewRoutes from "./routes/interview";
 import jobsRoutes from "./routes/jobs";
 import settingsRoutes from "./routes/settings";
 import bigQueryRoutes from "./routes/bigquery";
+import { startDiskCleanupScheduler } from "./utils/diskCleanup";
 
 const app = express();
 const apiBodyLimit = process.env.API_BODY_LIMIT ?? "200mb";
 const desktopReleaseDir = path.resolve(process.cwd(), "desktop", "releases");
 
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const isLocalhostOrigin = (origin: string): boolean => {
+  try {
+    const { hostname, protocol } = new URL(origin);
+    if (protocol === "file:") return true;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+};
+
+const corsOptions: cors.CorsOptions = allowedOrigins.length === 0
+  ? {}
+  : {
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(new Error(`Origin ${origin} not allowed by CORS.`));
+      },
+    };
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: apiBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: apiBodyLimit }));
 
@@ -29,19 +57,28 @@ if (fs.existsSync(desktopReleaseDir)) {
     }
 
     const filePath = path.join(desktopReleaseDir, fileName);
-    const normalizedDir = path.resolve(desktopReleaseDir);
-    const normalizedFilePath = path.resolve(filePath);
-    if (!normalizedFilePath.startsWith(normalizedDir)) {
-      res.status(400).json({ error: "Invalid file path." });
-      return;
-    }
-
-    if (!fs.existsSync(normalizedFilePath)) {
+    if (!fs.existsSync(filePath)) {
       res.status(404).json({ error: "Download file not found." });
       return;
     }
 
-    res.download(normalizedFilePath, fileName, (error) => {
+    let resolvedDir: string;
+    let resolvedFilePath: string;
+    try {
+      resolvedDir = fs.realpathSync(desktopReleaseDir);
+      resolvedFilePath = fs.realpathSync(filePath);
+    } catch {
+      res.status(400).json({ error: "Invalid file path." });
+      return;
+    }
+
+    const relative = path.relative(resolvedDir, resolvedFilePath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      res.status(400).json({ error: "Invalid file path." });
+      return;
+    }
+
+    res.download(resolvedFilePath, fileName, (error) => {
       if (error) {
         next(error);
       }
@@ -79,4 +116,5 @@ const port = Number(process.env.BACKEND_PORT ?? process.env.PORT ?? 4000);
 app.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`Backend server running on http://localhost:${port}`);
+  startDiskCleanupScheduler();
 });

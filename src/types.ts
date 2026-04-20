@@ -31,6 +31,41 @@ export type BigQueryTablePreviewResponse = {
   limit: number;
 };
 
+export type BigQueryTableSchemaField = {
+  name: string;
+  type: string;
+  mode: string;
+};
+
+export type BigQueryTableSchemaResponse = {
+  projectId: string;
+  datasetId: string;
+  tableName: string;
+  fields: BigQueryTableSchemaField[];
+};
+
+export type BigQueryCsvUploadIssue = {
+  scope: "file" | "schema" | "row";
+  message: string;
+  fieldName?: string;
+  rowNumber?: number;
+  expectedType?: string;
+  receivedValue?: string;
+};
+
+export type BigQueryCsvUploadResponse = {
+  ok: boolean;
+  projectId: string;
+  datasetId: string;
+  tableName: string;
+  fields: BigQueryTableSchemaField[];
+  csvHeaders: string[];
+  rowCount: number;
+  insertedRowCount: number;
+  issues: BigQueryCsvUploadIssue[];
+  message: string;
+};
+
 export type AiProvider = "mistral" | "openai";
 
 export type ProviderSettingsEntry = {

@@ -421,7 +421,9 @@ export const analyzeDrilldownRows = async (
     { length: totalRows },
     () => null,
   );
-  const workerCount = 1;
+  const envWorkers = Number(process.env.DRILLDOWN_WORKER_COUNT);
+  const requestedWorkers = Number.isFinite(envWorkers) && envWorkers > 0 ? Math.floor(envWorkers) : 3;
+  const workerCount = Math.max(1, Math.min(requestedWorkers, runtimePool.length, Math.max(1, totalRows)));
 
   const flattenCompletedRows = (): Array<Record<string, string>> => {
     const flattened: Array<Record<string, string>> = [];
@@ -449,7 +451,7 @@ export const analyzeDrilldownRows = async (
     });
   };
 
-  sendProgress("Starting drilldown analysis with 1 worker...");
+  sendProgress(`Starting drilldown analysis with ${workerCount} worker${workerCount === 1 ? "" : "s"}...`);
 
   let nextRowIndex = 0;
   const skippedCandidates: string[] = [];
