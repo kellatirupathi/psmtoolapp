@@ -1,12 +1,13 @@
 {
   "name": "sample",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "main": "desktop/main.js",
   "dependencies": {
     "adm-zip": "^0.5.16",
     "cheerio": "^1.2.0",
     "cors": "^2.8.6",
+    "dotenv": "^16.4.5",
     "electron-updater": "^6.8.3",
     "express": "^5.2.1",
     "ffmpeg-static": "^5.2.0",
