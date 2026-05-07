@@ -62,6 +62,14 @@ const cleanupExpiredJobs = (): void => {
   }
 };
 
+// Run cleanup every 5 minutes regardless of API activity. Without this,
+// failed jobs accumulated indefinitely if the user stopped polling them.
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+const cleanupTimer = setInterval(cleanupExpiredJobs, CLEANUP_INTERVAL_MS);
+if (typeof cleanupTimer.unref === "function") {
+  cleanupTimer.unref();
+}
+
 export const createJob = <T>(
   runner: (update: JobUpdateCallback<T>, control: JobRunnerControl) => Promise<T>,
 ): JobRecord<T> => {

@@ -158,6 +158,7 @@ const executeChatRequest = async (
   runtime: ProviderRuntimeConfig,
   payload: Record<string, unknown>,
   timeoutMs: number,
+  apiKey: string,
 ): Promise<any> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -165,7 +166,7 @@ const executeChatRequest = async (
     const response = await fetch(runtime.endpoints.chat, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${runtime.apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         Accept: "application/json",
       },
@@ -202,24 +203,38 @@ export const aiChat = async (
     payload.response_format = { type: "json_object" };
   }
 
-  const maxRetries = options.maxRetries ?? MISTRAL_CHAT_MAX_RETRIES_PER_KEY;
   const timeoutMs = options.timeoutMs ?? 120000;
+  const keyPool = runtime.provider === "mistral"
+    ? buildMistralKeyPool(runtime)
+    : [runtime.apiKey];
+  // Rotate across keys so free-tier 1 req/s per-key limits do not stall the
+  // pipeline. Each key gets its own retry budget.
+  const retriesPerKey = options.maxRetries ?? MISTRAL_CHAT_MAX_RETRIES_PER_KEY;
+  const totalAttempts = Math.max(retriesPerKey, keyPool.length * retriesPerKey);
+
   let lastError: unknown = new Error("Unknown AI chat error");
 
-  for (let attempt = 0; attempt < maxRetries; attempt += 1) {
+  for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+    const apiKey = keyPool[attempt % keyPool.length];
     try {
       if (runtime.provider === "mistral") {
-        await throttleMistralChatKey(runtime.apiKey);
+        await throttleMistralChatKey(apiKey);
       }
-      const json = await executeChatRequest(runtime, payload, timeoutMs);
+      const json = await executeChatRequest(runtime, payload, timeoutMs, apiKey);
       return extractChatContent(json);
     } catch (error) {
       lastError = error;
       const status = Number((error as any)?.status ?? 0);
-      if (!isRetriableStatus(status) || attempt >= maxRetries - 1) {
+      const isRetriable = isRetriableStatus(status);
+      if (!isRetriable || attempt >= totalAttempts - 1) {
+        // 401/403/400 are not retriable; bail immediately.
+        if (!isRetriable) break;
         break;
       }
-      const waitSeconds = computeRetryWaitSeconds(attempt, (error as any)?.retryAfter);
+      const waitSeconds = computeRetryWaitSeconds(
+        Math.floor(attempt / Math.max(keyPool.length, 1)),
+        (error as any)?.retryAfter,
+      );
       await sleep(waitSeconds * 1000);
     }
   }

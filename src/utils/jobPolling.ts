@@ -38,9 +38,15 @@ const isTransientPollingError = (error: unknown): boolean => {
     message.includes("upstream timed out") ||
     message.includes("Request timed out after") ||
     message.includes("Failed to fetch") ||
-    message.includes("NetworkError when attempting to fetch resource")
+    message.includes("NetworkError when attempting to fetch resource") ||
+    message.includes("Rate limited by AI provider (429)") ||
+    message.includes("API request failed (429")
   );
 };
+
+// Hard upper bound for any single job poll loop. Long interview transcripts
+// can take ~30-45 minutes; 2 hours is a safe ceiling.
+const DEFAULT_MAX_WALL_TIME_MS = 2 * 60 * 60 * 1000;
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -72,12 +78,19 @@ export const waitForJobCompletion = async (
   jobId: string,
   onUpdate: (status: JobStatusResponse) => void,
   pollIntervalMs = 1200,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; maxWallTimeMs?: number },
 ): Promise<ApiResult> => {
   let transientPollFailures = 0;
+  const startedAt = Date.now();
+  const maxWallTimeMs = options?.maxWallTimeMs ?? DEFAULT_MAX_WALL_TIME_MS;
 
   for (;;) {
     throwIfAborted(options?.signal);
+    if (Date.now() - startedAt > maxWallTimeMs) {
+      throw new Error(
+        `Job timed out after ${Math.round(maxWallTimeMs / 60000)} minutes without completing. The backend may be stuck — restart the app and check Mistral API key quotas.`,
+      );
+    }
     let status: JobStatusResponse;
     try {
       status = await fetchJobStatus(jobId);

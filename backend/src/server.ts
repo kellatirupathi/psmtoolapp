@@ -1,4 +1,13 @@
-import "dotenv/config";
+// Load .env if dotenv is available. In the packaged desktop app the env
+// is already applied by desktop/main.js before this module is required, so
+// dotenv is not required at runtime. Wrapping in try/catch keeps startup
+// working even when the dotenv package is missing from the asar bundle.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, global-require
+  require("dotenv/config");
+} catch {
+  // dotenv is optional; env vars must already be set by the parent process.
+}
 import fs from "node:fs";
 import path from "node:path";
 import express from "express";

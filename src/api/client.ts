@@ -75,6 +75,13 @@ const assertResponse = async (response: Response, url: string): Promise<Response
         `Payload too large for ${url}. Reduce input size or increase upload limits (Nginx client_max_body_size / backend API_BODY_LIMIT).`,
       );
     }
+    if (response.status === 429) {
+      const retryAfter = response.headers.get("Retry-After");
+      const waitHint = retryAfter ? ` Retry after ${retryAfter}s.` : "";
+      throw new Error(
+        `Rate limited by AI provider (429).${waitHint} The free-tier Mistral keys hit their per-second limit — wait a moment, then try again. Add more keys in Settings to scale throughput.`,
+      );
+    }
     throw new Error(
       text || `API request failed (${response.status} ${response.statusText}) for ${url}`,
     );

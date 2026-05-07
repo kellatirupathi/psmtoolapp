@@ -128,7 +128,7 @@ const normalizeSettings = (value: unknown, defaults?: ProviderSettings): Provide
     mistral: { ...MISTRAL_DEFAULTS },
     openai: { ...OPENAI_DEFAULTS },
     saveToSheets: true,
-    saveToBigQuery: true,
+    saveToBigQuery: false,
     updatedAt: nowIso(),
   };
 
@@ -156,7 +156,7 @@ const defaultSettings = (): ProviderSettingsDocument => {
     mistral: { ...MISTRAL_DEFAULTS },
     openai: { ...OPENAI_DEFAULTS },
     saveToSheets: true,
-    saveToBigQuery: true,
+    saveToBigQuery: false,
     createdAt: now,
     updatedAt: now,
   };
