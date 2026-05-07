@@ -37,7 +37,26 @@ if (!source) {
   process.exit(1);
 }
 
-const normalizedContent = source.content.replace(/\r\n/g, "\n").trim();
+// Strip developer-machine specifics that would leak into end-user installers.
+// - GCP_BIGQUERY_SERVICE_ACCOUNT_FILE pointing at an absolute path on the dev box:
+//   desktop/main.js resolves the bundled kossip-helpers.json at runtime instead.
+// - Stray TOML-style section headers (e.g. "[gcp_service_account]") that are
+//   no-ops for the dotenv parser but confuse readers.
+const sanitizeEnvForDesktop = (content) =>
+  content
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (/^\[[^\]]+\]\s*$/.test(trimmed)) return false;
+      if (/^GCP_BIGQUERY_SERVICE_ACCOUNT_FILE\s*=\s*[A-Za-z]:[\\/]/i.test(trimmed)) return false;
+      if (/^GCP_BIGQUERY_SERVICE_ACCOUNT_FILE\s*=\s*\/(home|Users)/i.test(trimmed)) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+
+const normalizedContent = sanitizeEnvForDesktop(source.content);
 const output = `${GENERATED_HEADER}${normalizedContent}\n`;
 
 fs.writeFileSync(outputEnvPath, output, "utf8");

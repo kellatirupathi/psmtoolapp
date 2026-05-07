@@ -1,6 +1,6 @@
 import { MISTRAL_MODELS, MISTRAL_URLS, getMistralChatKeys, getMistralTranscribeKey } from "../config";
 import type { AiProvider } from "../types";
-import { getMongoDb } from "../utils/mongo";
+import { getMongoDb, MongoUnreachableError } from "../utils/mongo";
 
 const SETTINGS_COLLECTION = "app_settings";
 const PROVIDER_SETTINGS_ID = "ai_provider_config";
@@ -167,18 +167,30 @@ const getCollection = async () => {
   return db.collection<ProviderSettingsDocument>(SETTINGS_COLLECTION);
 };
 
+const buildEnvOnlySettings = (): ProviderSettings => toPublicSettings(defaultSettings());
+
 export const getProviderSettings = async (): Promise<ProviderSettings> => {
-  const collection = await getCollection();
-  const existing = await collection.findOne({ _id: PROVIDER_SETTINGS_ID });
+  try {
+    const collection = await getCollection();
+    const existing = await collection.findOne({ _id: PROVIDER_SETTINGS_ID });
 
-  if (!existing) {
-    const created = defaultSettings();
-    await collection.insertOne(created);
-    return toPublicSettings(created);
+    if (!existing) {
+      const created = defaultSettings();
+      await collection.insertOne(created);
+      return toPublicSettings(created);
+    }
+
+    const normalized = normalizeSettings(existing, toPublicSettings(existing));
+    return normalized;
+  } catch (error) {
+    if (error instanceof MongoUnreachableError) {
+      // Fall back to env-only defaults so analysis still works when the
+      // settings database is unreachable. Persistent edits to settings will
+      // fail in this state and the Settings page will surface the Mongo error.
+      return buildEnvOnlySettings();
+    }
+    throw error;
   }
-
-  const normalized = normalizeSettings(existing, toPublicSettings(existing));
-  return normalized;
 };
 
 export const saveProviderSettings = async (input: unknown): Promise<ProviderSettings> => {

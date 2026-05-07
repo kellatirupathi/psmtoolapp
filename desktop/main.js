@@ -115,12 +115,34 @@ const ensureWritableBaseDir = () => {
   return baseDir;
 };
 
+const resolveBundledServiceAccountPath = () => {
+  const candidates = [
+    resolveAppPath("kossip-helpers.json"),
+  ];
+  if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, "kossip-helpers.json"));
+    candidates.push(path.join(process.resourcesPath, "app.asar.unpacked", "kossip-helpers.json"));
+  }
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? "";
+};
+
 const applyDesktopRuntimeEnv = () => {
   loadDesktopEnvOverrides();
   process.env.BACKEND_PORT = String(BACKEND_PORT);
   process.env.APP_BASE_DIR = process.env.APP_BASE_DIR || ensureWritableBaseDir();
   process.env.PROMPT_DIR = process.env.PROMPT_DIR || resolveAppPath("backend", "prompts");
   process.env.CURRICULUM_PATH = process.env.CURRICULUM_PATH || resolveAppPath("curriculum.txt");
+
+  // The shipped GCP_BIGQUERY_SERVICE_ACCOUNT_FILE may point at a developer
+  // machine path that does not exist for end users. If it is missing, fall
+  // back to the JSON bundled with the desktop app.
+  const bundledServiceAccount = resolveBundledServiceAccountPath();
+  const configuredServiceAccount = process.env.GCP_BIGQUERY_SERVICE_ACCOUNT_FILE?.trim();
+  if (!configuredServiceAccount || !fs.existsSync(configuredServiceAccount)) {
+    if (bundledServiceAccount) {
+      process.env.GCP_BIGQUERY_SERVICE_ACCOUNT_FILE = bundledServiceAccount;
+    }
+  }
 
   if (!process.env.FFMPEG_PATH && ffmpegPath) {
     process.env.FFMPEG_PATH = resolveExecutablePath(ffmpegPath);
