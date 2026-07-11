@@ -1,6 +1,6 @@
 {
   "name": "sample",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "main": "desktop/main.js",
   "dependencies": {
@@ -87,7 +87,7 @@
   "build": {
     "appId": "com.nxtwave.psm-analyser",
     "productName": "PSM Analyser",
-    "compression": "maximum",
+    "compression": "normal",
     "electronLanguages": [
       "en-US"
     ],

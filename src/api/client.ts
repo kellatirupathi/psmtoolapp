@@ -79,7 +79,7 @@ const assertResponse = async (response: Response, url: string): Promise<Response
       const retryAfter = response.headers.get("Retry-After");
       const waitHint = retryAfter ? ` Retry after ${retryAfter}s.` : "";
       throw new Error(
-        `Rate limited by AI provider (429).${waitHint} The free-tier Mistral keys hit their per-second limit — wait a moment, then try again. Add more keys in Settings to scale throughput.`,
+        `Rate limited by AI provider (429).${waitHint} The OpenAI API hit its rate limit — wait a moment, then try again. Check your OpenAI plan limits if this persists.`,
       );
     }
     throw new Error(

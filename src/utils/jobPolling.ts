@@ -88,7 +88,7 @@ export const waitForJobCompletion = async (
     throwIfAborted(options?.signal);
     if (Date.now() - startedAt > maxWallTimeMs) {
       throw new Error(
-        `Job timed out after ${Math.round(maxWallTimeMs / 60000)} minutes without completing. The backend may be stuck — restart the app and check Mistral API key quotas.`,
+        `Job timed out after ${Math.round(maxWallTimeMs / 60000)} minutes without completing. The backend may be stuck — restart the app and check your OpenAI API key quotas.`,
       );
     }
     let status: JobStatusResponse;

@@ -66,13 +66,10 @@ export type BigQueryCsvUploadResponse = {
   message: string;
 };
 
-export type AiProvider = "mistral" | "openai";
+export type AiProvider = "openai";
 
 export type ProviderSettingsEntry = {
   apiKey: string;
-  apiKey2: string;
-  apiKey3: string;
-  apiKey4: string;
   transcribeApiKey: string;
   chatEndpoint: string;
   ocrEndpoint: string;
@@ -83,7 +80,6 @@ export type ProviderSettingsEntry = {
 };
 
 export type ProviderSettings = {
-  mistral: ProviderSettingsEntry;
   openai: ProviderSettingsEntry;
   saveToSheets: boolean;
   saveToBigQuery: boolean;

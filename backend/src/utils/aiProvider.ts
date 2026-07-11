@@ -1,13 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
-  MISTRAL_CHAT_MAX_RETRIES_PER_KEY,
-  MISTRAL_CHAT_MIN_INTERVAL_SECONDS,
-  MISTRAL_TRANSCRIBE_MAX_BACKOFF_SECONDS,
-  MISTRAL_TRANSCRIBE_MAX_RETRIES,
-  MISTRAL_TRANSCRIBE_MIN_INTERVAL_SECONDS,
+  OPENAI_CHAT_MAX_RETRIES,
   OPENAI_OCR_MAX_BACKOFF_SECONDS,
   OPENAI_OCR_MAX_RETRIES,
+  OPENAI_TRANSCRIBE_MAX_BACKOFF_SECONDS,
+  OPENAI_TRANSCRIBE_MAX_RETRIES,
 } from "../config";
 import type { ProviderRuntimeConfig } from "../services/settingsService";
 
@@ -35,10 +33,6 @@ export type TranscriptionSegment = {
 };
 
 type TranscriptionResponseFormat = "verbose_json" | "json" | "text";
-
-const chatKeyLastCallTs: Map<string, number> = new Map();
-const transcribeKeyLastCallTs: Map<string, number> = new Map();
-const ocrKeyLastCallTs: Map<string, number> = new Map();
 
 const parseMaybeJson = (input: string): unknown => {
   const cleaned = input.replace(/```json/gi, "").replace(/```/g, "").trim();
@@ -68,65 +62,25 @@ const sleep = async (ms: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
-const throttleByKey = async (
-  store: Map<string, number>,
-  apiKey: string,
-  minIntervalSeconds: number,
-): Promise<void> => {
-  const now = Date.now();
-  const last = store.get(apiKey) ?? 0;
-  const elapsed = (now - last) / 1000;
-  const waitSeconds = minIntervalSeconds - elapsed;
-  if (waitSeconds > 0) {
-    await sleep(waitSeconds * 1000);
+// Default per-request ceiling for OCR/transcription HTTP calls. Without an
+// abort signal a stalled connection never settles and the retry loop never
+// fires, so the job hangs forever. OpenAI transcription of a large chunk can
+// legitimately take a while, so the ceiling is generous.
+const OCR_TIMEOUT_MS = Number(process.env.OPENAI_OCR_TIMEOUT_MS ?? 120000);
+const TRANSCRIBE_TIMEOUT_MS = Number(process.env.OPENAI_TRANSCRIBE_TIMEOUT_MS ?? 300000);
+
+const fetchWithTimeout = async (
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
   }
-  store.set(apiKey, Date.now());
-};
-
-const throttleMistralChatKey = async (apiKey: string): Promise<void> => {
-  await throttleByKey(chatKeyLastCallTs, apiKey, MISTRAL_CHAT_MIN_INTERVAL_SECONDS);
-};
-
-const throttleMistralTranscribeKey = async (apiKey: string): Promise<void> => {
-  await throttleByKey(transcribeKeyLastCallTs, apiKey, MISTRAL_TRANSCRIBE_MIN_INTERVAL_SECONDS);
-};
-
-const throttleMistralOcrKey = async (apiKey: string): Promise<void> => {
-  await throttleByKey(ocrKeyLastCallTs, apiKey, MISTRAL_CHAT_MIN_INTERVAL_SECONDS);
-};
-
-const buildMistralKeyPool = (runtime: ProviderRuntimeConfig): string[] => {
-  const seen = new Set<string>();
-  const pool: string[] = [];
-  const push = (raw: string | undefined): void => {
-    const key = (raw ?? "").trim();
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    pool.push(key);
-  };
-
-  for (const key of runtime.rotationApiKeys ?? []) {
-    push(key);
-  }
-  push(runtime.apiKey);
-  return pool.length > 0 ? pool : [runtime.apiKey];
-};
-
-const buildTranscribeKeyPool = (runtime: ProviderRuntimeConfig): string[] => {
-  const seen = new Set<string>();
-  const pool: string[] = [];
-  const push = (raw: string | undefined): void => {
-    const key = (raw ?? "").trim();
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    pool.push(key);
-  };
-
-  push(runtime.transcribeApiKey);
-  for (const key of buildMistralKeyPool(runtime)) {
-    push(key);
-  }
-  return pool.length > 0 ? pool : [runtime.apiKey];
 };
 
 const extractChatContent = (responseJson: any): string => {
@@ -204,37 +158,23 @@ export const aiChat = async (
   }
 
   const timeoutMs = options.timeoutMs ?? 120000;
-  const keyPool = runtime.provider === "mistral"
-    ? buildMistralKeyPool(runtime)
-    : [runtime.apiKey];
-  // Rotate across keys so free-tier 1 req/s per-key limits do not stall the
-  // pipeline. Each key gets its own retry budget.
-  const retriesPerKey = options.maxRetries ?? MISTRAL_CHAT_MAX_RETRIES_PER_KEY;
-  const totalAttempts = Math.max(retriesPerKey, keyPool.length * retriesPerKey);
+  const totalAttempts = options.maxRetries ?? OPENAI_CHAT_MAX_RETRIES;
 
   let lastError: unknown = new Error("Unknown AI chat error");
 
   for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
-    const apiKey = keyPool[attempt % keyPool.length];
     try {
-      if (runtime.provider === "mistral") {
-        await throttleMistralChatKey(apiKey);
-      }
-      const json = await executeChatRequest(runtime, payload, timeoutMs, apiKey);
+      const json = await executeChatRequest(runtime, payload, timeoutMs, runtime.apiKey);
       return extractChatContent(json);
     } catch (error) {
       lastError = error;
       const status = Number((error as any)?.status ?? 0);
       const isRetriable = isRetriableStatus(status);
+      // 401/403/400 are not retriable; bail immediately.
       if (!isRetriable || attempt >= totalAttempts - 1) {
-        // 401/403/400 are not retriable; bail immediately.
-        if (!isRetriable) break;
         break;
       }
-      const waitSeconds = computeRetryWaitSeconds(
-        Math.floor(attempt / Math.max(keyPool.length, 1)),
-        (error as any)?.retryAfter,
-      );
+      const waitSeconds = computeRetryWaitSeconds(attempt, (error as any)?.retryAfter);
       await sleep(waitSeconds * 1000);
     }
   }
@@ -300,21 +240,6 @@ const mimeFromExtension = (fileName: string): string => {
   }
 };
 
-const parseOcrFromMistral = (json: any): OcrResult => {
-  const pages = Array.isArray(json?.pages) ? json.pages : [];
-  const fullText = pages
-    .map((page: any) => String(page?.markdown ?? ""))
-    .join("\n\n")
-    .trim();
-
-  const imageIds = pages.flatMap((page: any) => {
-    const images = Array.isArray(page?.images) ? page.images : [];
-    return images.map((image: any) => String(image?.id ?? "unknown"));
-  });
-
-  return { fullText, imageIds };
-};
-
 const parseOcrFromOpenAi = (json: any): OcrResult => {
   const fullText = extractChatContent(json).trim();
   return { fullText, imageIds: [] };
@@ -327,59 +252,31 @@ export const aiOcr = async (runtime: ProviderRuntimeConfig, args: {
 }): Promise<OcrResult> => {
   const mimeType = args.mimeType ?? mimeFromExtension(args.fileName);
   const base64 = args.fileBuffer.toString("base64");
+  const dataUrl = `data:${mimeType};base64,${base64}`;
 
-  if (runtime.provider === "mistral") {
-    const keyPool = buildMistralKeyPool(runtime);
-    const maxRetries = Math.max(MISTRAL_CHAT_MAX_RETRIES_PER_KEY, keyPool.length);
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt < maxRetries; attempt += 1) {
-      const apiKey = keyPool[attempt % keyPool.length];
-      try {
-        await throttleMistralOcrKey(apiKey);
-        const response = await fetch(runtime.endpoints.ocr, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: runtime.models.ocr,
-            document: {
-              type: "image_url",
-              image_url: `data:${mimeType};base64,${base64}`,
-            },
-            include_image_base64: false,
-          }),
-        });
-
-        if (response.ok) {
-          return parseOcrFromMistral(await response.json());
-        }
-
-        const bodyText = await response.text();
-        lastError = new Error(`OCR ${response.status}: ${bodyText}`);
-        (lastError as any).status = response.status;
-        (lastError as any).retryAfter = response.headers.get("Retry-After");
-        if (!isRetriableStatus(response.status) || attempt >= maxRetries - 1) {
-          break;
-        }
-        const waitSeconds = computeRetryWaitSeconds(attempt, (lastError as any).retryAfter, 60);
-        await sleep(waitSeconds * 1000);
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        if (attempt >= maxRetries - 1) break;
-        await sleep(computeRetryWaitSeconds(attempt, null, 60) * 1000);
+  // OpenAI chat-completions accepts PDFs only as a `file` content part
+  // (file_data data URL); images go through `image_url`. Using the wrong
+  // part yields a 400, so branch on the mime type.
+  const isPdf = mimeType === "application/pdf";
+  const fileContentPart = isPdf
+    ? {
+        type: "file",
+        file: {
+          filename: path.basename(args.fileName) || "document.pdf",
+          file_data: dataUrl,
+        },
       }
-    }
-
-    throw new Error(`Mistral OCR failed after retries: ${String(lastError ?? "unknown error")}`);
-  }
+    : {
+        type: "image_url",
+        image_url: {
+          url: dataUrl,
+        },
+      };
 
   let lastError: Error | null = null;
   for (let attempt = 0; attempt < OPENAI_OCR_MAX_RETRIES; attempt += 1) {
     try {
-      const response = await fetch(runtime.endpoints.ocr, {
+      const response = await fetchWithTimeout(runtime.endpoints.ocr, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${runtime.apiKey}`,
@@ -396,17 +293,12 @@ export const aiOcr = async (runtime: ProviderRuntimeConfig, args: {
                   type: "text",
                   text: "Extract all visible text from this document. Return plain text only.",
                 },
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: `data:${mimeType};base64,${base64}`,
-                  },
-                },
+                fileContentPart,
               ],
             },
           ],
         }),
-      });
+      }, OCR_TIMEOUT_MS);
 
       if (response.ok) {
         return parseOcrFromOpenAi(await response.json());
@@ -530,13 +422,13 @@ const requestTranscription = async (args: {
     responseFormat: args.responseFormat,
   });
 
-  return fetch(args.runtime.endpoints.transcribe, {
+  return fetchWithTimeout(args.runtime.endpoints.transcribe, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${args.apiKey}`,
     },
     body: form,
-  });
+  }, TRANSCRIBE_TIMEOUT_MS);
 };
 
 export const aiTranscribeAudio = async (
@@ -550,29 +442,16 @@ export const aiTranscribeAudio = async (
   const audioBuffer = fs.readFileSync(audioPath);
   const audioBlob = new Blob([audioBuffer], { type: "audio/mpeg" });
   const fileName = path.basename(audioPath);
-  const primaryFormat: TranscriptionResponseFormat =
-    runtime.provider === "openai" ? "json" : "verbose_json";
-  const fallbackFormat: TranscriptionResponseFormat =
-    runtime.provider === "openai" ? "text" : "json";
+  const primaryFormat: TranscriptionResponseFormat = "json";
+  const fallbackFormat: TranscriptionResponseFormat = "text";
 
-  const keyPool = runtime.provider === "mistral"
-    ? buildTranscribeKeyPool(runtime)
-    : [runtime.transcribeApiKey || runtime.apiKey];
-  const maxRetries = runtime.provider === "mistral"
-    ? Math.max(MISTRAL_TRANSCRIBE_MAX_RETRIES, keyPool.length)
-    : 3;
-  const maxBackoff = runtime.provider === "mistral"
-    ? MISTRAL_TRANSCRIBE_MAX_BACKOFF_SECONDS
-    : 30;
+  const apiKey = runtime.transcribeApiKey || runtime.apiKey;
+  const maxRetries = OPENAI_TRANSCRIBE_MAX_RETRIES;
+  const maxBackoff = OPENAI_TRANSCRIBE_MAX_BACKOFF_SECONDS;
 
   let primaryError: Error | null = null;
 
   for (let attempt = 0; attempt < maxRetries; attempt += 1) {
-    const apiKey = keyPool[attempt % keyPool.length];
-    if (runtime.provider === "mistral") {
-      await throttleMistralTranscribeKey(apiKey);
-    }
-
     const response = await requestTranscription({
       runtime,
       fileName,
@@ -604,16 +483,12 @@ export const aiTranscribeAudio = async (
     throw primaryError ?? new Error("Transcription failed.");
   }
 
-  const fallbackKey = keyPool[0];
-  if (runtime.provider === "mistral") {
-    await throttleMistralTranscribeKey(fallbackKey);
-  }
   const fallbackResponse = await requestTranscription({
     runtime,
     fileName,
     audioBlob,
     responseFormat: fallbackFormat,
-    apiKey: fallbackKey,
+    apiKey,
   });
 
   if (!fallbackResponse.ok) {

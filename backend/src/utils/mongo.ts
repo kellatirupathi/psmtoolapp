@@ -13,6 +13,22 @@ export class MongoUnreachableError extends Error {
   }
 }
 
+// True for both the initial-connect wrapper and post-connect network/timeout
+// errors (e.g. MongoServerSelectionError when the link drops after a prior
+// successful connect). Callers use this to fall back to env-only settings.
+export const isMongoConnectivityError = (error: unknown): boolean => {
+  if (error instanceof MongoUnreachableError) {
+    return true;
+  }
+  const name = (error as { name?: string })?.name ?? "";
+  return (
+    name === "MongoServerSelectionError" ||
+    name === "MongoNetworkError" ||
+    name === "MongoNetworkTimeoutError" ||
+    name === "MongoTimeoutError"
+  );
+};
+
 const getMongoUrl = (): string => {
   const url = process.env.MONGODB_URL ?? process.env.MONGODB_URI ?? "";
   if (!url.trim()) {

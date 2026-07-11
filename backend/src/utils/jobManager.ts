@@ -55,6 +55,12 @@ const isTerminalState = (state: JobState): boolean =>
 const cleanupExpiredJobs = (): void => {
   const now = Date.now();
   for (const [id, job] of jobs.entries()) {
+    // Never expire a still-running/queued job — a single long step (e.g. a big
+    // transcription) can exceed the TTL without an update() call, and deleting
+    // it mid-flight would lose the result and 404 the client's poll.
+    if (!isTerminalState(job.state)) {
+      continue;
+    }
     const updatedAtMs = new Date(job.updatedAt).getTime();
     if (Number.isFinite(updatedAtMs) && now - updatedAtMs > JOB_TTL_MS) {
       jobs.delete(id);

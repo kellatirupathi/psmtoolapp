@@ -1,12 +1,10 @@
-import { MISTRAL_MODELS, MISTRAL_URLS, getMistralChatKeys, getMistralTranscribeKey } from "../config";
 import type { AiProvider } from "../types";
-import { getMongoDb, MongoUnreachableError } from "../utils/mongo";
+import { getMongoDb, isMongoConnectivityError } from "../utils/mongo";
 
 const SETTINGS_COLLECTION = "app_settings";
 const PROVIDER_SETTINGS_ID = "ai_provider_config";
 
 export type ProviderSettings = {
-  mistral: ProviderSettingsEntry;
   openai: ProviderSettingsEntry;
   saveToSheets: boolean;
   saveToBigQuery: boolean;
@@ -15,9 +13,6 @@ export type ProviderSettings = {
 
 export type ProviderSettingsEntry = {
   apiKey: string;
-  apiKey2: string;
-  apiKey3: string;
-  apiKey4: string;
   transcribeApiKey: string;
   chatEndpoint: string;
   ocrEndpoint: string;
@@ -30,7 +25,6 @@ export type ProviderSettingsEntry = {
 export type ProviderRuntimeConfig = {
   provider: AiProvider;
   apiKey: string;
-  rotationApiKeys: string[];
   transcribeApiKey: string;
   endpoints: {
     chat: string;
@@ -58,10 +52,7 @@ const nowIso = (): string => new Date().toISOString();
 
 const OPENAI_DEFAULTS: ProviderSettingsEntry = {
   apiKey: process.env.OPENAI_API_KEY?.trim() ?? "",
-  apiKey2: "",
-  apiKey3: "",
-  apiKey4: "",
-  transcribeApiKey: "",
+  transcribeApiKey: process.env.OPENAI_TRANSCRIBE_API_KEY?.trim() ?? "",
   chatEndpoint:
     process.env.OPENAI_CHAT_ENDPOINT?.trim() ?? "https://api.openai.com/v1/chat/completions",
   ocrEndpoint: process.env.OPENAI_OCR_ENDPOINT?.trim() ?? "https://api.openai.com/v1/chat/completions",
@@ -69,25 +60,7 @@ const OPENAI_DEFAULTS: ProviderSettingsEntry = {
     process.env.OPENAI_TRANSCRIBE_ENDPOINT?.trim() ?? "https://api.openai.com/v1/audio/transcriptions",
   chatModel: process.env.OPENAI_CHAT_MODEL?.trim() ?? "gpt-4.1-mini",
   ocrModel: process.env.OPENAI_OCR_MODEL?.trim() ?? "gpt-4.1-mini",
-  transcribeModel: process.env.OPENAI_TRANSCRIBE_MODEL?.trim() ?? "gpt-4o-mini-transcribe",
-};
-
-const MISTRAL_DEFAULTS: ProviderSettingsEntry = {
-  apiKey:
-    process.env.MISTRAL_API_KEY?.trim() ??
-    getMistralChatKeys()[0]?.trim() ??
-    getMistralTranscribeKey()?.trim() ??
-    "",
-  apiKey2: process.env.MISTRAL_API_KEY_2?.trim() ?? "",
-  apiKey3: process.env.MISTRAL_API_KEY_3?.trim() ?? "",
-  apiKey4: process.env.MISTRAL_API_KEY_4?.trim() ?? "",
-  transcribeApiKey: process.env.MISTRAL_TRANSCRIBE_API_KEY?.trim() ?? "",
-  chatEndpoint: MISTRAL_URLS.chat,
-  ocrEndpoint: MISTRAL_URLS.ocr,
-  transcribeEndpoint: MISTRAL_URLS.transcribe,
-  chatModel: MISTRAL_MODELS.chat,
-  ocrModel: MISTRAL_MODELS.ocr,
-  transcribeModel: MISTRAL_MODELS.transcribe,
+  transcribeModel: process.env.OPENAI_TRANSCRIBE_MODEL?.trim() ?? "gpt-4o-transcribe",
 };
 
 const normalizeString = (value: unknown, fallback = ""): string => {
@@ -109,9 +82,6 @@ const normalizeEntry = (value: unknown, fallback: ProviderSettingsEntry): Provid
 
   return {
     apiKey: normalizeString(source.apiKey, fallback.apiKey),
-    apiKey2: normalizeString(source.apiKey2, fallback.apiKey2),
-    apiKey3: normalizeString(source.apiKey3, fallback.apiKey3),
-    apiKey4: normalizeString(source.apiKey4, fallback.apiKey4),
     transcribeApiKey: normalizeString(source.transcribeApiKey, fallback.transcribeApiKey),
     chatEndpoint: normalizeString(source.chatEndpoint, fallback.chatEndpoint),
     ocrEndpoint: normalizeString(source.ocrEndpoint, fallback.ocrEndpoint),
@@ -125,7 +95,6 @@ const normalizeEntry = (value: unknown, fallback: ProviderSettingsEntry): Provid
 const normalizeSettings = (value: unknown, defaults?: ProviderSettings): ProviderSettings => {
   const source = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   const fallback: ProviderSettings = defaults ?? {
-    mistral: { ...MISTRAL_DEFAULTS },
     openai: { ...OPENAI_DEFAULTS },
     saveToSheets: true,
     saveToBigQuery: false,
@@ -133,7 +102,6 @@ const normalizeSettings = (value: unknown, defaults?: ProviderSettings): Provide
   };
 
   return {
-    mistral: normalizeEntry(source.mistral, fallback.mistral),
     openai: normalizeEntry(source.openai, fallback.openai),
     saveToSheets: normalizeBoolean(source.saveToSheets, fallback.saveToSheets),
     saveToBigQuery: normalizeBoolean(source.saveToBigQuery, fallback.saveToBigQuery),
@@ -142,7 +110,6 @@ const normalizeSettings = (value: unknown, defaults?: ProviderSettings): Provide
 };
 
 const toPublicSettings = (document: ProviderSettingsDocument): ProviderSettings => ({
-  mistral: document.mistral,
   openai: document.openai,
   saveToSheets: document.saveToSheets,
   saveToBigQuery: document.saveToBigQuery,
@@ -153,7 +120,6 @@ const defaultSettings = (): ProviderSettingsDocument => {
   const now = nowIso();
   return {
     _id: PROVIDER_SETTINGS_ID,
-    mistral: { ...MISTRAL_DEFAULTS },
     openai: { ...OPENAI_DEFAULTS },
     saveToSheets: true,
     saveToBigQuery: false,
@@ -183,10 +149,12 @@ export const getProviderSettings = async (): Promise<ProviderSettings> => {
     const normalized = normalizeSettings(existing, toPublicSettings(existing));
     return normalized;
   } catch (error) {
-    if (error instanceof MongoUnreachableError) {
+    if (isMongoConnectivityError(error)) {
       // Fall back to env-only defaults so analysis still works when the
-      // settings database is unreachable. Persistent edits to settings will
-      // fail in this state and the Settings page will surface the Mongo error.
+      // settings database is unreachable — covers both the initial connect
+      // failure and a network drop after a prior successful connect. Persistent
+      // edits to settings will fail in this state and the Settings page will
+      // surface the Mongo error.
       return buildEnvOnlySettings();
     }
     throw error;
@@ -204,7 +172,6 @@ export const saveProviderSettings = async (input: unknown): Promise<ProviderSett
     _id: PROVIDER_SETTINGS_ID,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
-    mistral: normalized.mistral,
     openai: normalized.openai,
     saveToSheets: normalized.saveToSheets,
     saveToBigQuery: normalized.saveToBigQuery,
@@ -223,17 +190,11 @@ export const getRuntimeProviderConfig = async (provider: AiProvider): Promise<Pr
     throw new Error(`Missing ${provider.toUpperCase()} API key in settings.`);
   }
 
-  const rotationApiKeys =
-    provider === "mistral"
-      ? [...new Set([selected.apiKey, selected.apiKey2, selected.apiKey3, selected.apiKey4].map((key) => key.trim()).filter((key) => key.length > 0))]
-      : [selected.apiKey.trim()];
-
   const transcribeApiKey = selected.transcribeApiKey.trim() || selected.apiKey.trim();
 
   return {
     provider,
     apiKey: selected.apiKey.trim(),
-    rotationApiKeys,
     transcribeApiKey,
     endpoints: {
       chat: selected.chatEndpoint,

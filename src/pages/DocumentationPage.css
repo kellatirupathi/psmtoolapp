@@ -10,7 +10,8 @@
     radial-gradient(circle at 86% 5%, rgba(240, 120, 58, 0.12), transparent 35%),
     #f2f5f9;
   color: #18263a;
-  font-family: "Space Grotesk", sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
 }
 
 .docs-main {

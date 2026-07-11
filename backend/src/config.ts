@@ -36,34 +36,19 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-export const MISTRAL_CHAT_MIN_INTERVAL_SECONDS = parseNumber(
-  process.env.MISTRAL_CHAT_MIN_INTERVAL_SECONDS,
-  1.2,
-);
-
-export const MISTRAL_CHAT_MAX_RETRIES_PER_KEY = parseNumber(
-  process.env.MISTRAL_CHAT_MAX_RETRIES_PER_KEY,
+export const OPENAI_CHAT_MAX_RETRIES = parseNumber(
+  process.env.OPENAI_CHAT_MAX_RETRIES,
   4,
 );
 
-export const MISTRAL_TRANSCRIBE_MIN_INTERVAL_SECONDS = parseNumber(
-  process.env.MISTRAL_TRANSCRIBE_MIN_INTERVAL_SECONDS,
-  7,
+export const OPENAI_TRANSCRIBE_MAX_RETRIES = parseNumber(
+  process.env.OPENAI_TRANSCRIBE_MAX_RETRIES,
+  3,
 );
 
-export const MISTRAL_TRANSCRIBE_MAX_RETRIES = parseNumber(
-  process.env.MISTRAL_TRANSCRIBE_MAX_RETRIES,
-  6,
-);
-
-export const MISTRAL_TRANSCRIBE_MAX_BACKOFF_SECONDS = parseNumber(
-  process.env.MISTRAL_TRANSCRIBE_MAX_BACKOFF_SECONDS,
-  120,
-);
-
-export const AUDIO_CHUNK_DURATION_SECONDS = parseNumber(
-  process.env.AUDIO_CHUNK_DURATION_SECONDS,
-  300,
+export const OPENAI_TRANSCRIBE_MAX_BACKOFF_SECONDS = parseNumber(
+  process.env.OPENAI_TRANSCRIBE_MAX_BACKOFF_SECONDS,
+  30,
 );
 
 export const OPENAI_AUDIO_SINGLE_SHOT_MAX_BYTES = parseNumber(
@@ -322,32 +307,4 @@ export const getBigQueryServiceAccountCredentials = (): ServiceAccountCredential
   );
 };
 
-export const getMistralChatKeys = (): string[] => {
-  const keys = [
-    process.env.MISTRAL_API_KEY_1,
-    process.env.MISTRAL_API_KEY_2,
-    process.env.MISTRAL_API_KEY_3,
-    process.env.MISTRAL_API_KEY_4,
-    process.env.MISTRAL_API_KEY,
-  ].filter((value): value is string => Boolean(value));
-
-  return keys;
-};
-
-export const getMistralTranscribeKey = (): string | null => {
-  return process.env.MISTRAL_TRANSCRIBE_API_KEY ?? process.env.MISTRAL_API_KEY ?? null;
-};
-
 export const GITHUB_GIST_TOKEN = process.env.GITHUB_GIST_TOKEN ?? null;
-
-export const MISTRAL_URLS = {
-  chat: "https://api.mistral.ai/v1/chat/completions",
-  ocr: "https://api.mistral.ai/v1/ocr",
-  transcribe: "https://api.mistral.ai/v1/audio/transcriptions",
-} as const;
-
-export const MISTRAL_MODELS = {
-  chat: "mistral-large-latest",
-  ocr: "mistral-ocr-latest",
-  transcribe: "voxtral-mini-latest",
-} as const;

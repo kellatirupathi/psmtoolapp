@@ -1,5 +1,5 @@
 import { POLL_INTERVAL_MS } from "../config";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cancelJob, startAssessmentsIndividualJob, startAssessmentsZipJob } from "../api/client";
 import { ResultTable } from "../components/ResultTable";
 import { downloadCsv, rowsToCsv } from "../utils/csv";
@@ -18,7 +18,7 @@ import type { AiProvider, ApiResult, AssessmentIndividualRow, AssessmentZipRow }
 type AssessmentsPageProps = {
   product: string;
   provider: AiProvider;
-  onProviderChange: (provider: AiProvider) => void;
+  onProviderChange?: (provider: AiProvider) => void;
 };
 
 let rowCounter = 0;
@@ -41,7 +41,7 @@ const createIndividualRow = (): AssessmentIndividualRow => ({
   assessment_date: new Date().toISOString().slice(0, 10),
 });
 
-export function AssessmentsPage({ product, provider, onProviderChange }: AssessmentsPageProps) {
+export function AssessmentsPage({ product, provider }: AssessmentsPageProps) {
   const [tab, setTab] = useState<"ZIP File Processor" | "Individual File Processor">("ZIP File Processor");
   const [zipRows, setZipRows] = useState<AssessmentZipRow[]>(() => [createZipRow()]);
   const [individualRows, setIndividualRows] = useState<AssessmentIndividualRow[]>(() => [createIndividualRow()]);
@@ -51,6 +51,14 @@ export function AssessmentsPage({ product, provider, onProviderChange }: Assessm
   const [liveStatus, setLiveStatus] = useState("");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const pollAbortRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight poll loop when the page unmounts (navigation away)
+  // to avoid a zombie fetch loop and setState-after-unmount warnings.
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, []);
 
   const addZipRow = (): void => {
     setZipRows((prev) => [...prev, createZipRow()]);
@@ -156,15 +164,19 @@ export function AssessmentsPage({ product, provider, onProviderChange }: Assessm
       return;
     }
 
+    setLiveStatus("Stopping...");
     try {
-      setLiveStatus("Stopping...");
       await cancelJob(activeJobId);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      // Always stop the local poll and reset UI, even if the server cancel
+      // failed — otherwise the UI stays wedged on "Stopping..." with the poll
+      // loop still alive.
       pollAbortRef.current?.abort();
       setActiveJobId(null);
       setLoading(false);
       setLiveStatus("Stopped by user.");
-    } catch (err) {
-      setError(String(err));
     }
   };
 
@@ -172,17 +184,6 @@ export function AssessmentsPage({ product, provider, onProviderChange }: Assessm
     <div className="page-section">
       <section className="panel">
         <h3>Assessments</h3>
-        <div className="field-row">
-          <label htmlFor="assessments-provider">API</label>
-          <select
-            id="assessments-provider"
-            value={provider}
-            onChange={(event) => onProviderChange(event.target.value as AiProvider)}
-          >
-            <option value="mistral">Mistral API</option>
-            <option value="openai">OpenAI API</option>
-          </select>
-        </div>
 
         <div className="tab-row">
           <button className={tab === "ZIP File Processor" ? "tab active" : "tab"} onClick={() => setTab("ZIP File Processor")}> 

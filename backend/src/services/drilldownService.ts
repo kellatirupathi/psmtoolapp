@@ -10,13 +10,14 @@ import { getRuntimeProviderConfig, getStorageSettings, type ProviderRuntimeConfi
 import type { AiProvider } from "../types";
 
 const DRILLDOWN_PROMPT_TEMPLATE = `
-### SYSTEM ROLE
-You are a technical interview question formatter and classifier.
-You will receive raw interview notes for one interview round.
-Your task is to convert unformatted notes into well-formed interview questions, classify each question, and mark curriculum coverage.
+### ROLE
+You are a Senior Technical Interview Question Formatter and Classifier.
 
-### INPUT DATA
-You will receive one JSON object:
+### TASK
+You will receive raw interview notes for one interview round. Convert the unformatted notes into well-formed interview questions, classify each question, and mark curriculum coverage, following the rules below precisely.
+
+### INPUT
+A single JSON object containing:
 - \`interview_round\` (round name)
 - \`round_text\` (raw notes for that round, may be shorthand)
 
@@ -132,7 +133,7 @@ const resolveTechNonTech = (args: {
   techStack?: unknown;
 }): string => {
   const provided = forceEnumFormat(args.providedValue ?? "N/A");
-  if (provided !== "N_A") {
+  if (provided !== "N/A" && provided !== "N_A") {
     return provided;
   }
 
@@ -395,26 +396,10 @@ export const analyzeDrilldownRows = async (
   );
   const storageSettings = await getStorageSettings();
   const baseRuntime = await getRuntimeProviderConfig(provider);
-  const runtimePool =
-    baseRuntime.provider === "mistral"
-      ? (() => {
-          const keys = baseRuntime.rotationApiKeys;
-          if (keys.length === 0) {
-            return [baseRuntime];
-          }
-
-          return keys.map((apiKey) => ({
-            ...baseRuntime,
-            apiKey,
-          }));
-        })()
-      : [baseRuntime];
-  let runtimeIndex = 0;
-  const takeRoundRuntime = (): ProviderRuntimeConfig => {
-    const runtime = runtimePool[runtimeIndex % runtimePool.length];
-    runtimeIndex += 1;
-    return runtime;
-  };
+  // OpenAI is the only provider and uses a single API key; every worker shares
+  // the same runtime config. OpenAI's rate limits comfortably handle parallel
+  // requests on one key, so worker count is governed by request/row count only.
+  const takeRoundRuntime = (): ProviderRuntimeConfig => baseRuntime;
 
   const totalRows = rows.length;
   const rowsByCandidateIndex: Array<Array<Record<string, string>> | null> = Array.from(
@@ -423,7 +408,7 @@ export const analyzeDrilldownRows = async (
   );
   const envWorkers = Number(process.env.DRILLDOWN_WORKER_COUNT);
   const requestedWorkers = Number.isFinite(envWorkers) && envWorkers > 0 ? Math.floor(envWorkers) : 3;
-  const workerCount = Math.max(1, Math.min(requestedWorkers, runtimePool.length, Math.max(1, totalRows)));
+  const workerCount = Math.max(1, Math.min(requestedWorkers, Math.max(1, totalRows)));
 
   const flattenCompletedRows = (): Array<Record<string, string>> => {
     const flattened: Array<Record<string, string>> = [];

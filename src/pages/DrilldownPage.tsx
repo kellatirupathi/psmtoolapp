@@ -1,5 +1,5 @@
 import { POLL_INTERVAL_MS } from "../config";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cancelJob, getDrilldownSampleTemplateUrl, startDrilldownJob } from "../api/client";
 import { ResultTable } from "../components/ResultTable";
 import { downloadCsv, rowsToCsv } from "../utils/csv";
@@ -19,11 +19,10 @@ import type { AiProvider, ApiResult, JobProgress } from "../types";
 export function DrilldownPage({
   product,
   provider,
-  onProviderChange,
 }: {
   product: string;
   provider: AiProvider;
-  onProviderChange: (provider: AiProvider) => void;
+  onProviderChange?: (provider: AiProvider) => void;
 }) {
   const [rows, setRows] = useState<Array<Record<string, string>>>([]);
   const [result, setResult] = useState<ApiResult | null>(null);
@@ -33,6 +32,15 @@ export function DrilldownPage({
   const [progress, setProgress] = useState<JobProgress | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const pollAbortRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight poll loop when the page unmounts (e.g. the user
+  // navigates to another sidebar item) to avoid a zombie fetch loop and
+  // setState-after-unmount warnings.
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, []);
 
   const handleCsvUpload = async (file: File): Promise<void> => {
     const text = await file.text();
@@ -102,16 +110,20 @@ export function DrilldownPage({
       return;
     }
 
+    setLiveStatus("Stopping...");
     try {
-      setLiveStatus("Stopping...");
       await cancelJob(activeJobId);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      // Always stop the local poll and reset UI, even if the server cancel
+      // request failed — otherwise the UI stays wedged on "Stopping..." with
+      // the poll loop still alive.
       pollAbortRef.current?.abort();
       setActiveJobId(null);
       setLoading(false);
-      setLiveStatus("Stopped by user.");
       setProgress(null);
-    } catch (err) {
-      setError(String(err));
+      setLiveStatus("Stopped by user.");
     }
   };
 
@@ -122,17 +134,6 @@ export function DrilldownPage({
     <div className="page-section">
       <section className="panel">
         <h3>Drilldown</h3>
-        <div className="field-row">
-          <label htmlFor="drilldown-provider">API</label>
-          <select
-            id="drilldown-provider"
-            value={provider}
-            onChange={(event) => onProviderChange(event.target.value as AiProvider)}
-          >
-            <option value="mistral">Mistral API</option>
-            <option value="openai">OpenAI API</option>
-          </select>
-        </div>
         <a className="link-button" href={getDrilldownSampleTemplateUrl()} target="_blank" rel="noreferrer">
           Download Sample Template
         </a>

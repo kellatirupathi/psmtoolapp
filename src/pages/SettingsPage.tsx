@@ -4,9 +4,6 @@ import type { ProviderSettings, ProviderSettingsEntry } from "../types";
 
 const defaultEntry = (entry: Partial<ProviderSettingsEntry> = {}): ProviderSettingsEntry => ({
   apiKey: entry.apiKey ?? "",
-  apiKey2: entry.apiKey2 ?? "",
-  apiKey3: entry.apiKey3 ?? "",
-  apiKey4: entry.apiKey4 ?? "",
   transcribeApiKey: entry.transcribeApiKey ?? "",
   chatEndpoint: entry.chatEndpoint ?? "",
   ocrEndpoint: entry.ocrEndpoint ?? "",
@@ -17,28 +14,20 @@ const defaultEntry = (entry: Partial<ProviderSettingsEntry> = {}): ProviderSetti
 });
 
 const defaultSettings: ProviderSettings = {
-  mistral: defaultEntry({
-    chatEndpoint: "https://api.mistral.ai/v1/chat/completions",
-    ocrEndpoint: "https://api.mistral.ai/v1/ocr",
-    transcribeEndpoint: "https://api.mistral.ai/v1/audio/transcriptions",
-    chatModel: "mistral-large-latest",
-    ocrModel: "mistral-ocr-latest",
-    transcribeModel: "voxtral-mini-latest",
-  }),
   openai: defaultEntry({
     chatEndpoint: "https://api.openai.com/v1/chat/completions",
     ocrEndpoint: "https://api.openai.com/v1/chat/completions",
     transcribeEndpoint: "https://api.openai.com/v1/audio/transcriptions",
     chatModel: "gpt-4.1-mini",
     ocrModel: "gpt-4.1-mini",
-    transcribeModel: "gpt-4o-mini-transcribe",
+    transcribeModel: "gpt-4o-transcribe",
   }),
   saveToSheets: true,
   saveToBigQuery: true,
   updatedAt: "",
 };
 
-type ProviderKey = "mistral" | "openai";
+type ProviderKey = "openai";
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<ProviderSettings>(defaultSettings);
@@ -142,42 +131,14 @@ export function SettingsPage() {
             onChange={(event) => updateField(provider, "apiKey", event.target.value)}
           />
         </label>
-        {provider === "mistral" && (
-          <>
-            <label>
-              API Key 2
-              <input
-                type="text"
-                value={entry.apiKey2}
-                onChange={(event) => updateField(provider, "apiKey2", event.target.value)}
-              />
-            </label>
-            <label>
-              API Key 3
-              <input
-                type="text"
-                value={entry.apiKey3}
-                onChange={(event) => updateField(provider, "apiKey3", event.target.value)}
-              />
-            </label>
-            <label>
-              API Key 4
-              <input
-                type="text"
-                value={entry.apiKey4}
-                onChange={(event) => updateField(provider, "apiKey4", event.target.value)}
-              />
-            </label>
-            <label>
-              Transcribe API Key
-              <input
-                type="text"
-                value={entry.transcribeApiKey}
-                onChange={(event) => updateField(provider, "transcribeApiKey", event.target.value)}
-              />
-            </label>
-          </>
-        )}
+        <label>
+          Transcribe API Key <span className="muted">(optional — falls back to API Key)</span>
+          <input
+            type="text"
+            value={entry.transcribeApiKey}
+            onChange={(event) => updateField(provider, "transcribeApiKey", event.target.value)}
+          />
+        </label>
         <label>
           Chat Endpoint
           <input
@@ -256,7 +217,6 @@ export function SettingsPage() {
           </label>
         </div>
         <div className="settings-grid">
-          {renderProviderCard("mistral", "Mistral")}
           {renderProviderCard("openai", "OpenAI")}
         </div>
 

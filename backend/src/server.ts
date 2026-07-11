@@ -122,8 +122,21 @@ app.use((error: any, _req: express.Request, res: express.Response, next: express
 });
 
 const port = Number(process.env.BACKEND_PORT ?? process.env.PORT ?? 4000);
-app.listen(port, () => {
+const server = app.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`Backend server running on http://localhost:${port}`);
   startDiskCleanupScheduler();
+});
+
+server.on("error", (error: NodeJS.ErrnoException) => {
+  // eslint-disable-next-line no-console
+  if (error.code === "EADDRINUSE") {
+    console.error(
+      `Backend port ${port} is already in use. Another instance may be running. ` +
+        `Set BACKEND_PORT to a free port or close the other process.`,
+    );
+  } else {
+    console.error(`Backend failed to start: ${error.message}`);
+  }
+  process.exit(1);
 });

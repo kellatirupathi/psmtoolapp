@@ -31,14 +31,13 @@ desktop/releases/*
 desktop/desktop.env
 kossip-helpers.json
 
+# Local runtime work dirs (large media / temp outputs)
 DownloadedVideos/
+AudioChunks/
+GeneratedTranscripts/
+Q&A/
 *.mp4
 
-
-DownloadedVideos/
-*.mp4
-
-
-DownloadedVideos/
-*.mp4
+# Claude Code session/agent files (local only)
+.claude/
 

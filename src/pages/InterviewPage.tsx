@@ -1,5 +1,5 @@
 import { POLL_INTERVAL_MS } from "../config";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cancelJob, startInterviewAnalyzerJob, startVideoUploaderJob } from "../api/client";
 import { ResultTable } from "../components/ResultTable";
 import { ValidationPanel } from "../components/ValidationPanel";
@@ -51,6 +51,14 @@ function InterviewAnalyzerModule({ product, provider }: { product: string; provi
   const [downloadProgress, setDownloadProgress] = useState<JobProgress | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const pollAbortRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight poll loop when the page unmounts (navigation away)
+  // to avoid a zombie fetch loop and setState-after-unmount warnings.
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, []);
 
   const previewRows = useMemo(
     () => rows.slice(0, 10).map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, String(v ?? "")]))),
@@ -165,16 +173,20 @@ function InterviewAnalyzerModule({ product, provider }: { product: string; provi
       return;
     }
 
+    setLiveStatus("Stopping...");
     try {
-      setLiveStatus("Stopping...");
       await cancelJob(activeJobId);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      // Always stop the local poll and reset UI, even if the server cancel
+      // failed — otherwise the UI stays wedged on "Stopping..." with the poll
+      // loop still alive.
       pollAbortRef.current?.abort();
       setActiveJobId(null);
       setLoading(false);
       setLiveStatus("Stopped by user.");
       setDownloadProgress(null);
-    } catch (err) {
-      setError(String(err));
     }
   };
 
@@ -301,6 +313,14 @@ function VideoUploaderModule({ product, provider }: { product: string; provider:
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const pollAbortRef = useRef<AbortController | null>(null);
 
+  // Abort any in-flight poll loop when the page unmounts (navigation away)
+  // to avoid a zombie fetch loop and setState-after-unmount warnings.
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, []);
+
   const parseMetadata = (): void => {
     const parsed = parseVideoMetadataFromPaste(metadataPaste);
     const report = parsed ? validateVideoUploaderMetadata(parsed) : null;
@@ -403,15 +423,19 @@ function VideoUploaderModule({ product, provider }: { product: string; provider:
       return;
     }
 
+    setLiveStatus("Stopping...");
     try {
-      setLiveStatus("Stopping...");
       await cancelJob(activeJobId);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      // Always stop the local poll and reset UI, even if the server cancel
+      // failed — otherwise the UI stays wedged on "Stopping..." with the poll
+      // loop still alive.
       pollAbortRef.current?.abort();
       setActiveJobId(null);
       setLoading(false);
       setLiveStatus("Stopped by user.");
-    } catch (err) {
-      setError(String(err));
     }
   };
 
@@ -525,7 +549,6 @@ export function InterviewPage({
   selectedModule,
   onModuleChange,
   provider,
-  onProviderChange,
 }: InterviewPageProps) {
   const moduleOptions = modules.length > 0 ? modules : defaultModules;
   const resolvedSelectedModule = moduleOptions.includes(selectedModule)
@@ -547,17 +570,6 @@ export function InterviewPage({
                 {option}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="field-row-stacked" htmlFor="interview-provider">
-          API
-          <select
-            id="interview-provider"
-            value={provider}
-            onChange={(event) => onProviderChange(event.target.value as AiProvider)}
-          >
-            <option value="mistral">Mistral API</option>
-            <option value="openai">OpenAI API</option>
           </select>
         </label>
       </div>

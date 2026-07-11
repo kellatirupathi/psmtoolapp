@@ -16,7 +16,7 @@ import {
   extractAudioFile,
   extractAudioSegment,
   getMediaDuration,
-  mistralSegmentsToCleanText,
+  segmentsToCleanText,
   splitAudioForProvider,
   validateVideoFile,
 } from "../utils/media";
@@ -75,7 +75,7 @@ const resolveTechNonTech = (args: {
   techStack?: unknown;
 }): string => {
   const provided = forceEnumFormat(args.providedValue ?? "N/A");
-  if (provided !== "N_A") {
+  if (provided !== "N/A" && provided !== "N_A") {
     return provided;
   }
 
@@ -240,28 +240,38 @@ const generateTranscript = async (
   onStatus?: (message: string) => void,
   abortIfCancelled?: () => void,
 ): Promise<void> => {
-  const chunks = splitAudioForProvider(audioPath, runtime.provider);
+  const chunks = splitAudioForProvider(audioPath);
   let offset = 0;
   let transcriptBuffer = "";
   const totalChunks = chunks.length;
   let chunkIndex = 0;
 
-  for (const chunk of chunks) {
-    abortIfCancelled?.();
-    chunkIndex += 1;
-    if (totalChunks === 1) {
-      onStatus?.("Generating transcript...");
-    } else {
-      onStatus?.(`Generating transcript chunk ${chunkIndex}/${totalChunks}...`);
+  try {
+    for (const chunk of chunks) {
+      abortIfCancelled?.();
+      chunkIndex += 1;
+      if (totalChunks === 1) {
+        onStatus?.("Generating transcript...");
+      } else {
+        onStatus?.(`Generating transcript chunk ${chunkIndex}/${totalChunks}...`);
+      }
+      const segments = await aiTranscribeAudio(runtime, chunk);
+      abortIfCancelled?.();
+      transcriptBuffer += `${segmentsToCleanText(segments, offset)}\n`;
+
+      offset += getMediaDuration(chunk) ?? 0;
+
+      if (chunk !== audioPath) {
+        safeRemoveFile(chunk);
+      }
     }
-    const segments = await aiTranscribeAudio(runtime, chunk);
-    abortIfCancelled?.();
-    transcriptBuffer += `${mistralSegmentsToCleanText(segments, offset)}\n`;
-
-    offset += getMediaDuration(chunk) ?? 0;
-
-    if (chunk !== audioPath) {
-      safeRemoveFile(chunk);
+  } finally {
+    // Ensure any chunk files not yet removed (e.g. on transcription failure or
+    // cancellation) are cleaned up instead of lingering until the disk sweep.
+    for (const chunk of chunks) {
+      if (chunk !== audioPath) {
+        safeRemoveFile(chunk);
+      }
     }
   }
 

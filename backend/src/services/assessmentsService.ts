@@ -11,18 +11,23 @@ import type { AiProvider, AssessmentIndividualInput, AssessmentZipInput } from "
 import { getRuntimeProviderConfig, getStorageSettings, type ProviderRuntimeConfig } from "./settingsService";
 
 const INITIAL_QUESTION_EXTRACTION_PROMPT = `
-You are an Expert Technical Interview Data Extractor.
-**YOUR TASK:** Extract questions strictly following these rules:
+### ROLE
+You are a Senior Technical Assessment Data Extraction Specialist. You extract clean, structured questions from raw assessment text (OCR output from images or PDFs).
 
-1.  **CLEAN TEXT:** Remove image placeholders like \`![image_id]\` and phrases like "Refer to image below".
-2.  **MCQ Formatting:** Combine Question Text + ALL Options (A, B, C, D) into \`question_text\`.
-3.  **Coding Formatting:** Extract ENTIRE problem description VERBATIM.
-4.  **Handling Images:** If a diagram is crucial, set \`has_image\` to "Yes".
+### TASK
+Extract each question from the raw text below, following these rules precisely:
 
-RAW TEXT:
+1. **Clean text:** Remove image placeholders such as \`![image_id]\` and phrases like "Refer to image below".
+2. **MCQ formatting:** Combine the question text and ALL options (A, B, C, D) into \`question_text\`.
+3. **Coding formatting:** Extract the ENTIRE problem description verbatim.
+4. **Images:** If a diagram is essential to the question, set \`has_image\` to "Yes".
+
+### RAW TEXT
 {raw_text_safe}
 
-**OUTPUT JSON:**
+### OUTPUT FORMAT
+Return ONLY a valid JSON object in this exact structure. Do not include markdown formatting.
+
 {
     "questions": [
         {
@@ -36,12 +41,14 @@ RAW TEXT:
 `;
 
 const ASSESSMENT_CLASSIFICATION_PROMPT_TEMPLATE = `
-### SYSTEM ROLE
-You are a Senior Technical Curriculum Architect and Data Standardizer.
-You will receive a JSON array of Q&A pairs. Your task is to classify, tag, and enrich each pair with standardized metadata.
+### ROLE
+You are a Senior Technical Curriculum Architect and Data Standardization Specialist.
 
-### INPUT DATA
-A list of objects containing \`question_text\` and \`answer_text\`.
+### TASK
+You will receive a JSON array of Q&A pairs. Classify, tag, and enrich each pair with standardized metadata, following the rules below precisely and consistently.
+
+### INPUT
+A JSON array of objects containing \`question_text\` and \`answer_text\`.
 
 ### CURRICULUM CONTEXT
 Use the following curriculum text to determine if a topic is covered in the syllabus:
@@ -143,7 +150,7 @@ const resolveTechNonTech = (args: {
   techStack?: unknown;
 }): string => {
   const provided = forceEnumFormat(args.providedValue ?? "N/A");
-  if (provided !== "N_A") {
+  if (provided !== "N/A" && provided !== "N_A") {
     return provided;
   }
 

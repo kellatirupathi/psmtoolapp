@@ -224,7 +224,7 @@ export function DocumentationPage() {
   const handleOpenApp = (event: MouseEvent<HTMLAnchorElement>): void => {
     event.preventDefault();
     const params = new URLSearchParams({
-      api: "mistralapi",
+      api: "openapi",
       module: "interview-analyser",
     });
     window.history.pushState({}, "", `/interview-analyser?${params.toString()}`);
@@ -245,7 +245,7 @@ export function DocumentationPage() {
         <header className="docs-topbar">
           <h1>PsmTool Documentation</h1>
           <a
-            href="/interview-analyser?api=mistralapi&module=interview-analyser"
+            href="/interview-analyser?api=openapi&module=interview-analyser"
             className="docs-home-link"
             onClick={handleOpenApp}
           >

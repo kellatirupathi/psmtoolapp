@@ -61,13 +61,13 @@ const getRouteByPath = (path: string): RouteMeta | null => {
   return APP_ROUTES.find((route) => route.path === normalized) ?? null;
 };
 
-const providerToQueryValue = (provider: AiProvider): string => {
-  return provider === "openai" ? "openapi" : "mistralapi";
+const providerToQueryValue = (_provider: AiProvider): string => {
+  return "openapi";
 };
 
-const queryValueToProvider = (value: string | null): AiProvider => {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  return normalized === "openapi" || normalized === "openai" ? "openai" : "mistral";
+const queryValueToProvider = (_value: string | null): AiProvider => {
+  // OpenAI is the only supported provider; legacy ?api= values resolve to it.
+  return "openai";
 };
 
 const isVideoModule = (moduleValue: string): boolean => {
@@ -465,23 +465,6 @@ export default function App() {
       </aside>
 
       <main className="main-content">
-        <header className="page-header">
-          <div>
-            <h2>{config.appName}</h2>
-            <p>
-              Page: <strong>{activeRoute.label}</strong>
-              {activeRoute.key !== "settings" && activeRoute.key !== "bigquery" && activeRoute.key !== "bigqueryUpload" && (
-                <>
-                  {" "}
-                  | Product: <strong>{selectedProduct}</strong> | API:{" "}
-                  <strong>{selectedProvider === "openai" ? "OpenAI" : "Mistral"}</strong>
-                </>
-              )}
-            </p>
-          </div>
-          {loadingConfig && <div className="loading-chip">Loading config...</div>}
-        </header>
-
         {pageContent}
       </main>
     </div>

@@ -1,5 +1,5 @@
 import { POLL_INTERVAL_MS } from "../config";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cancelJob, startAssignmentsJob } from "../api/client";
 import { ResultTable } from "../components/ResultTable";
 import { downloadCsv, rowsToCsv } from "../utils/csv";
@@ -19,11 +19,10 @@ import type { AiProvider, ApiResult, AssignmentInputRow } from "../types";
 export function AssignmentsPage({
   product,
   provider,
-  onProviderChange,
 }: {
   product: string;
   provider: AiProvider;
-  onProviderChange: (provider: AiProvider) => void;
+  onProviderChange?: (provider: AiProvider) => void;
 }) {
   const [inputMethod, setInputMethod] = useState<"Paste Text" | "Upload CSV">("Paste Text");
   const [pasteText, setPasteText] = useState("");
@@ -34,6 +33,14 @@ export function AssignmentsPage({
   const [liveStatus, setLiveStatus] = useState("");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const pollAbortRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight poll loop when the page unmounts (navigation away)
+  // to avoid a zombie fetch loop and setState-after-unmount warnings.
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, []);
 
   const previewRows = useMemo(
     () => rows.slice(0, 10).map((row) => ({ ...row })),
@@ -107,15 +114,19 @@ export function AssignmentsPage({
       return;
     }
 
+    setLiveStatus("Stopping...");
     try {
-      setLiveStatus("Stopping...");
       await cancelJob(activeJobId);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      // Always stop the local poll and reset UI, even if the server cancel
+      // failed — otherwise the UI stays wedged on "Stopping..." with the poll
+      // loop still alive.
       pollAbortRef.current?.abort();
       setActiveJobId(null);
       setLoading(false);
       setLiveStatus("Stopped by user.");
-    } catch (err) {
-      setError(String(err));
     }
   };
 
@@ -123,17 +134,6 @@ export function AssignmentsPage({
     <div className="page-section">
       <section className="panel">
         <h3>Assignments</h3>
-        <div className="field-row">
-          <label htmlFor="assignments-provider">API</label>
-          <select
-            id="assignments-provider"
-            value={provider}
-            onChange={(event) => onProviderChange(event.target.value as AiProvider)}
-          >
-            <option value="mistral">Mistral API</option>
-            <option value="openai">OpenAI API</option>
-          </select>
-        </div>
 
         <div className="inline-controls">
           <label>
