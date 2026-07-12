@@ -5,7 +5,10 @@ const { autoUpdater } = require("electron-updater");
 const ffmpegPath = require("ffmpeg-static");
 const ffprobeStatic = require("ffprobe-static");
 
-const BACKEND_PORT = Number(process.env.BACKEND_PORT || 4000);
+// Uncommon high port so the bundled backend does not clash with common dev
+// servers (many use 4000). Keeps the desktop app reliable on machines already
+// running something on 4000.
+const BACKEND_PORT = Number(process.env.BACKEND_PORT || 47600);
 const BACKEND_HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/api/health`;
 const BACKEND_START_TIMEOUT_MS = 30000;
 const HEALTH_CHECK_INTERVAL_MS = 600;

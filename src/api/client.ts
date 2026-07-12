@@ -27,7 +27,7 @@ const resolveApiBase = (): string => {
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
     if (host === "localhost" || host === "127.0.0.1") {
-      return "http://localhost:4000/api";
+      return "http://localhost:47600/api";
     }
   }
 

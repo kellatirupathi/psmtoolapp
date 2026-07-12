@@ -138,5 +138,12 @@ server.on("error", (error: NodeJS.ErrnoException) => {
   } else {
     console.error(`Backend failed to start: ${error.message}`);
   }
-  process.exit(1);
+  // In the packaged desktop app the backend runs INSIDE the Electron process
+  // (required by desktop/main.js), so calling process.exit() here would kill
+  // the whole app silently. Only hard-exit when running as a standalone
+  // process (dev server / hosted backend); in Electron let the startup
+  // health-check time out so main.js can surface a proper error dialog.
+  if (!process.versions.electron) {
+    process.exit(1);
+  }
 });
