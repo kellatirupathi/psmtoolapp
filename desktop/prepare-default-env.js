@@ -40,12 +40,29 @@ if (!source) {
 // Strip developer-machine specifics that would leak into end-user installers.
 // - GCP_BIGQUERY_SERVICE_ACCOUNT_FILE pointing at an absolute path on the dev box:
 //   desktop/main.js resolves the bundled kossip-helpers.json at runtime instead.
+// - Paid OpenAI credentials: desktop users must configure credentials at
+//   runtime. Bundling a key in an installer makes it recoverable by anyone who
+//   can access the installer.
 // - Stray TOML-style section headers (e.g. "[gcp_service_account]") that are
 //   no-ops for the dotenv parser but confuse readers.
+const secretKeysToBlank = new Set([
+  "OPENAI_API_KEY",
+  "OPENAI_TRANSCRIBE_API_KEY",
+  "GEMINI_API_KEY",
+  "GEMINI_TRANSCRIBE_API_KEY",
+]);
+
 const sanitizeEnvForDesktop = (content) =>
   content
     .replace(/\r\n/g, "\n")
     .split("\n")
+    .map((line) => {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/);
+      if (match && secretKeysToBlank.has(match[1].toUpperCase())) {
+        return `${match[1]}=`;
+      }
+      return line;
+    })
     .filter((line) => {
       const trimmed = line.trim();
       if (/^\[[^\]]+\]\s*$/.test(trimmed)) return false;

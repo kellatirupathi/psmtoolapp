@@ -1,6 +1,6 @@
 {
   "name": "sample",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "private": true,
   "main": "desktop/main.js",
   "dependencies": {
@@ -39,6 +39,7 @@
     "typecheck:client": "tsc -p tsconfig.json --noEmit",
     "typecheck:server": "tsc -p backend/tsconfig.json --noEmit",
     "typecheck": "npm run typecheck:client && npm run typecheck:server",
+    "test:interview-analyser": "tsx --test backend/tests/interviewAnalyser.test.ts",
     "start": "npm run dev",
     "build": "react-scripts build",
     "test": "react-scripts test",

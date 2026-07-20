@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { APP_DIRS, BIGQUERY_TABLE_NAMES, SHEET_NAMES } from "../config";
-import { getRuntimeProviderConfig, getStorageSettings, type ProviderRuntimeConfig } from "./settingsService";
+import { getInterviewRuntimeConfigs, getStorageSettings, type ProviderRuntimeConfig } from "./settingsService";
 import { getCurriculumSnippet } from "../utils/curriculum";
 import { forceEnumFormat, forceEnumFormatOrEmpty } from "../utils/enum";
 import { ensureDirs, readTextFileIfExists, safeRemoveFile, writeTextFile } from "../utils/fs";
@@ -23,6 +23,10 @@ import {
 import { aiChat, aiTranscribeAudio } from "../utils/aiProvider";
 import { loadClassifyPromptTemplate, loadQnaPrompt } from "../utils/prompts";
 import type { AiProvider, InterviewInputRow, QaItem, VideoUploaderMetadata } from "../types";
+import {
+  INTERVIEW_CLASSIFICATION_RESPONSE_SCHEMA,
+  INTERVIEW_QNA_RESPONSE_SCHEMA,
+} from "./interviewSchemas";
 
 const SHEET_HEADERS = [
   "user_id",
@@ -107,7 +111,7 @@ const cleanupFiles = (paths: string[]): void => {
   }
 };
 
-const parseModelResultAsArray = (content: string): Record<string, unknown>[] => {
+const parseModelResultAsArray = (content: string, stage: string): Record<string, unknown>[] => {
   const cleaned = content.replace(/```json/gi, "").replace(/```/g, "").trim();
 
   try {
@@ -126,9 +130,12 @@ const parseModelResultAsArray = (content: string): Record<string, unknown>[] => 
       return [parsed as Record<string, unknown>];
     }
 
-    return [];
-  } catch {
-    return [];
+    throw new Error(`${stage} returned a JSON value that does not contain an items array.`);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`${stage} returned invalid JSON: ${error.message}`);
+    }
+    throw error;
   }
 };
 
@@ -136,17 +143,21 @@ const getChatCompletion = async (
   runtime: ProviderRuntimeConfig,
   prompt: string,
   content: string,
+  responseSchema: { name: string; description: string; schema: Record<string, unknown> },
 ): Promise<string> => {
   const response = await aiChat(
     runtime,
     [
-      { role: "system", content: `${prompt} Return ONLY valid JSON. No markdown.` },
+      { role: "system", content: prompt },
       { role: "user", content },
     ],
-    { temperature: 0.1, timeoutMs: 120000 },
+    { temperature: 0.1, timeoutMs: 120000, responseJsonSchema: responseSchema },
   );
 
-  return response || "[]";
+  if (!response.trim()) {
+    throw new Error(`${responseSchema.name} returned an empty response.`);
+  }
+  return response;
 };
 
 const deduplicateQna = (items: QaItem[]): QaItem[] => {
@@ -154,38 +165,54 @@ const deduplicateQna = (items: QaItem[]): QaItem[] => {
   const unique: QaItem[] = [];
 
   for (const item of items) {
-    const key = String(item.question_text ?? "").trim();
+    const questionText = String(item.question_text ?? "").trim();
+    const key = questionText
+      .toLocaleLowerCase("en-US")
+      .replace(/[?!.]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    unique.push(item);
+    unique.push({
+      question_text: questionText,
+      answer_text: String(item.answer_text ?? "").trim() || "No answer provided.",
+    });
   }
 
   return unique;
 };
 
 const mergeClassification = (original: QaItem[], classified: Array<Record<string, unknown>>): QaItem[] => {
-  const index = new Map<string, Record<string, unknown>>();
+  const index = new Map<number, Record<string, unknown>>();
 
   for (const item of classified) {
-    const key = String(item.question_text ?? "").trim();
-    if (key) index.set(key, item);
+    const itemId = Number(item.item_id);
+    if (!Number.isInteger(itemId) || itemId < 0 || itemId >= original.length) {
+      throw new Error(`Interview classification returned an invalid item_id: ${String(item.item_id)}.`);
+    }
+    if (index.has(itemId)) {
+      throw new Error(`Interview classification returned duplicate item_id ${itemId}.`);
+    }
+    index.set(itemId, item);
   }
 
-  return original.map((item) => {
-    const key = String(item.question_text ?? "").trim();
-    const match = index.get(key) ?? {};
+  return original.map((item, itemId) => {
+    const match = index.get(itemId);
+    if (!match) {
+      throw new Error(`Interview classification omitted item_id ${itemId}.`);
+    }
     const merged: QaItem = { ...item };
 
     for (const field of CLASSIFY_FIELDS) {
-      if (match[field] !== undefined) {
-        (merged as any)[field] = String(match[field]);
+      if (match[field] === undefined || match[field] === null) {
+        throw new Error(`Interview classification omitted ${field} for item_id ${itemId}.`);
       }
+      (merged as any)[field] = String(match[field]);
     }
 
-    for (const field of CLASSIFY_FIELDS) {
-      if ((merged as any)[field] === undefined) {
-        (merged as any)[field] = "N/A";
-      }
+    const normalizedTopic = forceEnumFormatOrEmpty(merged.topic ?? "");
+    if (!normalizedTopic) {
+      merged.topic = "GENERAL_ASSESSMENT";
     }
 
     return merged;
@@ -205,11 +232,19 @@ const classifyQnaList = async (
 
   for (let index = 0; index < qna.length; index += batchSize) {
     abortIfCancelled?.();
-    const batch = qna.slice(index, index + batchSize);
-    const content = JSON.stringify(batch);
-    const response = await getChatCompletion(runtime, classifyPrompt, content);
+    const batch = qna.slice(index, index + batchSize).map((item, batchIndex) => ({
+      item_id: index + batchIndex,
+      question_text: item.question_text,
+      answer_text: item.answer_text ?? "No answer provided.",
+    }));
+    const content = JSON.stringify({ items: batch });
+    const response = await getChatCompletion(runtime, classifyPrompt, content, {
+      name: "interview_qna_classification",
+      description: "A complete standardized classification for every supplied interview Q&A item.",
+      schema: INTERVIEW_CLASSIFICATION_RESPONSE_SCHEMA,
+    });
     abortIfCancelled?.();
-    classified.push(...parseModelResultAsArray(response));
+    classified.push(...parseModelResultAsArray(response, "Interview classification"));
   }
 
   return mergeClassification(qna, classified);
@@ -222,10 +257,15 @@ const extractQnaFromFullTranscript = async (
   abortIfCancelled?: () => void,
 ): Promise<QaItem[]> => {
   abortIfCancelled?.();
-  const content = `Analyze this full interview transcript:\n\n${transcript}`;
-  const response = await getChatCompletion(runtime, prompt, content);
+  if (!transcript.trim()) return [];
+  const content = `Extract Q&A from the transcript enclosed below.\n<transcript>\n${transcript}\n</transcript>`;
+  const response = await getChatCompletion(runtime, prompt, content, {
+    name: "interview_qna_extraction",
+    description: "An ordered, transcript-grounded list of interviewer questions and candidate answers.",
+    schema: INTERVIEW_QNA_RESPONSE_SCHEMA,
+  });
   abortIfCancelled?.();
-  const parsed = parseModelResultAsArray(response);
+  const parsed = parseModelResultAsArray(response, "Interview Q&A extraction");
 
   return parsed.map((item) => ({
     question_text: String(item.question_text ?? ""),
@@ -240,7 +280,7 @@ const generateTranscript = async (
   onStatus?: (message: string) => void,
   abortIfCancelled?: () => void,
 ): Promise<void> => {
-  const chunks = splitAudioForProvider(audioPath);
+  const chunks = splitAudioForProvider(audioPath, runtime.provider);
   let offset = 0;
   let transcriptBuffer = "";
   const totalChunks = chunks.length;
@@ -587,7 +627,7 @@ const runQnaPipeline = async (args: {
 
   const deduped = deduplicateQna(raw);
   const envBatch = Number(process.env.INTERVIEW_CLASSIFY_BATCH_SIZE);
-  const classifyBatchSize = Number.isFinite(envBatch) && envBatch > 0 ? Math.floor(envBatch) : 12;
+  const classifyBatchSize = Number.isFinite(envBatch) && envBatch > 0 ? Math.floor(envBatch) : 30;
   return classifyQnaList(
     args.runtime,
     deduped,
@@ -621,7 +661,8 @@ const saveQaCsv = (filePath: string, rows: Array<Record<string, string>>): void 
 };
 
 const processInterviewRow = async (args: {
-  runtime: ProviderRuntimeConfig;
+  transcriptionRuntime: ProviderRuntimeConfig;
+  qnaRuntime: ProviderRuntimeConfig;
   row: InterviewInputRow;
   runToken: string;
   qnaPrompt: string;
@@ -730,7 +771,13 @@ const processInterviewRow = async (args: {
   if (!fs.existsSync(transcriptPath)) {
     args.abortIfCancelled?.();
     args.onStatus?.(`${candidatePrefix}: generating transcript...`);
-    await generateTranscript(args.runtime, audioPath, transcriptPath, args.onStatus, args.abortIfCancelled);
+    await generateTranscript(
+      args.transcriptionRuntime,
+      audioPath,
+      transcriptPath,
+      args.onStatus,
+      args.abortIfCancelled,
+    );
   }
   args.abortIfCancelled?.();
 
@@ -746,7 +793,7 @@ const processInterviewRow = async (args: {
   args.abortIfCancelled?.();
   args.onStatus?.(`${candidatePrefix}: extracting Q&A...`);
   const qaItems = await runQnaPipeline({
-    runtime: args.runtime,
+    runtime: args.qnaRuntime,
     transcriptText,
     qnaPrompt: args.qnaPrompt,
     classifyPrompt: args.classifyPrompt,
@@ -792,8 +839,12 @@ export const runInterviewAnalyzer = async (args: {
   args.abortIfCancelled?.();
   args.onStatus?.("Preparing interview analyzer...");
   ensureDirs(Object.values(APP_DIRS));
-  const runtime = await getRuntimeProviderConfig(args.provider);
+  const runtimes = await getInterviewRuntimeConfigs();
   const storageSettings = await getStorageSettings();
+  args.onStatus?.(
+    `Using ${runtimes.transcription.provider.toUpperCase()} for transcription and ` +
+      `${runtimes.qna.provider.toUpperCase()} for Q&A.`,
+  );
 
   if (!checkFfmpegInstalled()) {
     throw new Error(
@@ -820,7 +871,8 @@ export const runInterviewAnalyzer = async (args: {
     args.abortIfCancelled?.();
     rowIndex += 1;
     const processed = await processInterviewRow({
-      runtime,
+      transcriptionRuntime: runtimes.transcription,
+      qnaRuntime: runtimes.qna,
       row,
       runToken,
       qnaPrompt,
@@ -903,8 +955,12 @@ export const runVideoUploader = async (args: {
   args.abortIfCancelled?.();
   args.onStatus?.("Preparing local video uploader...");
   ensureDirs(Object.values(APP_DIRS));
-  const runtime = await getRuntimeProviderConfig(args.provider);
+  const runtimes = await getInterviewRuntimeConfigs();
   const storageSettings = await getStorageSettings();
+  args.onStatus?.(
+    `Using ${runtimes.transcription.provider.toUpperCase()} for transcription and ` +
+      `${runtimes.qna.provider.toUpperCase()} for Q&A.`,
+  );
 
   const interviewDate = String(args.metadata.interview_date ?? "").trim();
   if (!interviewDate) {
@@ -945,7 +1001,13 @@ export const runVideoUploader = async (args: {
   if (!fs.existsSync(transcriptPath)) {
     args.abortIfCancelled?.();
     args.onStatus?.("Generating transcript...");
-    await generateTranscript(runtime, audioPath, transcriptPath, args.onStatus, args.abortIfCancelled);
+    await generateTranscript(
+      runtimes.transcription,
+      audioPath,
+      transcriptPath,
+      args.onStatus,
+      args.abortIfCancelled,
+    );
   }
   args.abortIfCancelled?.();
 
@@ -958,7 +1020,7 @@ export const runVideoUploader = async (args: {
 
   args.onStatus?.("Extracting and classifying Q&A...");
   const qaItems = await runQnaPipeline({
-    runtime,
+    runtime: runtimes.qna,
     transcriptText,
     qnaPrompt,
     classifyPrompt,

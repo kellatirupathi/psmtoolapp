@@ -66,7 +66,7 @@ export type BigQueryCsvUploadResponse = {
   message: string;
 };
 
-export type AiProvider = "openai";
+export type AiProvider = "openai" | "gemini";
 
 export type ProviderSettingsEntry = {
   apiKey: string;
@@ -81,6 +81,9 @@ export type ProviderSettingsEntry = {
 
 export type ProviderSettings = {
   openai: ProviderSettingsEntry;
+  gemini: ProviderSettingsEntry;
+  transcriptionProvider: AiProvider;
+  qnaProvider: AiProvider;
   saveToSheets: boolean;
   saveToBigQuery: boolean;
   updatedAt: string;

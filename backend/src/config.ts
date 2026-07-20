@@ -61,6 +61,18 @@ export const OPENAI_AUDIO_CHUNK_DURATION_SECONDS = parseNumber(
   900,
 );
 
+// Gemini inline requests have a 20 MB total JSON request limit. Base64 adds
+// roughly 33%, so keep raw chunks below 13 MB with a shorter duration ceiling.
+export const GEMINI_AUDIO_SINGLE_SHOT_MAX_BYTES = parseNumber(
+  process.env.GEMINI_AUDIO_SINGLE_SHOT_MAX_BYTES,
+  13 * 1024 * 1024,
+);
+
+export const GEMINI_AUDIO_CHUNK_DURATION_SECONDS = parseNumber(
+  process.env.GEMINI_AUDIO_CHUNK_DURATION_SECONDS,
+  480,
+);
+
 export const OPENAI_OCR_MAX_RETRIES = parseNumber(
   process.env.OPENAI_OCR_MAX_RETRIES,
   4,

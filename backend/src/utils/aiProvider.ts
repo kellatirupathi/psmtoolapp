@@ -17,6 +17,11 @@ export type AiChatMessage = {
 type ChatOptions = {
   temperature?: number;
   responseAsJsonObject?: boolean;
+  responseJsonSchema?: {
+    name: string;
+    description?: string;
+    schema: Record<string, unknown>;
+  };
   maxRetries?: number;
   timeoutMs?: number;
 };
@@ -104,6 +109,29 @@ const extractChatContent = (responseJson: any): string => {
   return "";
 };
 
+const extractGeminiContent = (responseJson: any): string => {
+  const parts = responseJson?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .map((part: any) => (typeof part?.text === "string" ? part.text : ""))
+    .filter((text: string) => text.length > 0)
+    .join("\n");
+};
+
+const resolveGeminiModelEndpoint = (endpoint: string, model: string): string => {
+  const trimmed = endpoint.trim();
+  if (!trimmed) {
+    throw new Error("Missing GEMINI endpoint in settings.");
+  }
+  if (trimmed.includes("{model}")) {
+    return trimmed.replaceAll("{model}", encodeURIComponent(model));
+  }
+  if (/:(?:generateContent|streamGenerateContent)(?:\?|$)/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `${trimmed.replace(/\/$/, "")}/${encodeURIComponent(model)}:generateContent`;
+};
+
 const isRetriableStatus = (status: number): boolean => {
   return [429, 500, 502, 503, 504].includes(status);
 };
@@ -117,13 +145,23 @@ const executeChatRequest = async (
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(runtime.endpoints.chat, {
+    const isGemini = runtime.provider === "gemini";
+    const endpoint = isGemini
+      ? resolveGeminiModelEndpoint(runtime.endpoints.chat, runtime.models.chat)
+      : runtime.endpoints.chat;
+    const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers: isGemini
+        ? {
+            "x-goog-api-key": apiKey,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          }
+        : {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -147,13 +185,49 @@ export const aiChat = async (
   messages: AiChatMessage[],
   options: ChatOptions = {},
 ): Promise<string> => {
-  const payload: Record<string, unknown> = {
-    model: runtime.models.chat,
-    messages,
-    temperature: options.temperature ?? 0.1,
-  };
+  const isGemini = runtime.provider === "gemini";
+  const payload: Record<string, unknown> = isGemini
+    ? {
+        systemInstruction: {
+          parts: messages
+            .filter((message) => message.role === "system")
+            .map((message) => ({ text: message.content })),
+        },
+        contents: messages
+          .filter((message) => message.role !== "system")
+          .map((message) => ({
+            role: message.role === "assistant" ? "model" : "user",
+            parts: [{ text: message.content }],
+          })),
+        generationConfig: {
+          temperature: options.temperature ?? 0.1,
+          ...(options.responseJsonSchema
+            ? {
+                responseMimeType: "application/json",
+                responseJsonSchema: options.responseJsonSchema.schema,
+              }
+            : options.responseAsJsonObject
+              ? { responseMimeType: "application/json" }
+              : {}),
+        },
+      }
+    : {
+        model: runtime.models.chat,
+        messages,
+        temperature: options.temperature ?? 0.1,
+      };
 
-  if (options.responseAsJsonObject) {
+  if (!isGemini && options.responseJsonSchema) {
+    payload.response_format = {
+      type: "json_schema",
+      json_schema: {
+        name: options.responseJsonSchema.name,
+        description: options.responseJsonSchema.description,
+        strict: true,
+        schema: options.responseJsonSchema.schema,
+      },
+    };
+  } else if (!isGemini && options.responseAsJsonObject) {
     payload.response_format = { type: "json_object" };
   }
 
@@ -165,7 +239,16 @@ export const aiChat = async (
   for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
     try {
       const json = await executeChatRequest(runtime, payload, timeoutMs, runtime.apiKey);
-      return extractChatContent(json);
+      const content = isGemini ? extractGeminiContent(json) : extractChatContent(json);
+      if (!content.trim()) {
+        const blockReason = json?.promptFeedback?.blockReason ?? json?.candidates?.[0]?.finishReason;
+        throw new Error(
+          blockReason
+            ? `Empty model response (${String(blockReason)}).`
+            : "Empty model response.",
+        );
+      }
+      return content;
     } catch (error) {
       lastError = error;
       const status = Number((error as any)?.status ?? 0);
@@ -431,6 +514,131 @@ const requestTranscription = async (args: {
   }, TRANSCRIBE_TIMEOUT_MS);
 };
 
+const GEMINI_TRANSCRIPTION_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    segments: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          start_seconds: { type: "number" },
+          end_seconds: { type: "number" },
+          speaker: { type: "string" },
+          text: { type: "string" },
+        },
+        required: ["start_seconds", "end_seconds", "speaker", "text"],
+      },
+    },
+  },
+  required: ["segments"],
+};
+
+const parseGeminiTranscription = (json: any): TranscriptionSegment[] => {
+  const content = extractGeminiContent(json).trim();
+  if (!content) {
+    const reason = json?.promptFeedback?.blockReason ?? json?.candidates?.[0]?.finishReason;
+    throw new Error(`Gemini transcription returned no content${reason ? ` (${String(reason)})` : ""}.`);
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(content.replace(/```json/gi, "").replace(/```/g, "").trim());
+  } catch (error) {
+    throw new Error(`Gemini transcription returned invalid JSON: ${String(error)}`);
+  }
+
+  const segments = Array.isArray(parsed?.segments) ? parsed.segments : [];
+  return segments
+    .map((segment: any) => {
+      const speaker = String(segment?.speaker ?? "Speaker").trim() || "Speaker";
+      const text = String(segment?.text ?? "").trim();
+      return {
+        start: Math.max(0, Number(segment?.start_seconds ?? 0) || 0),
+        end: Math.max(0, Number(segment?.end_seconds ?? 0) || 0),
+        text: text ? `${speaker}: ${text}` : "",
+      };
+    })
+    .filter((segment: TranscriptionSegment) => segment.text.length > 0);
+};
+
+const transcribeWithGemini = async (
+  runtime: ProviderRuntimeConfig,
+  audioBuffer: Buffer,
+): Promise<TranscriptionSegment[]> => {
+  const endpoint = resolveGeminiModelEndpoint(
+    runtime.endpoints.transcribe,
+    runtime.models.transcribe,
+  );
+  const payload = {
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text: [
+              "Transcribe this interview audio faithfully and completely.",
+              "Identify speakers consistently as Interviewer, Candidate, or Speaker N when uncertain.",
+              "Return timestamps in seconds relative to the start of this audio chunk.",
+              "Preserve the spoken language and technical terms. Do not translate, summarize, correct, or invent speech.",
+              "Exclude only non-speech noise that contains no spoken information.",
+            ].join(" "),
+          },
+          {
+            inlineData: {
+              mimeType: "audio/mpeg",
+              data: audioBuffer.toString("base64"),
+            },
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: "application/json",
+      responseJsonSchema: GEMINI_TRANSCRIPTION_SCHEMA,
+    },
+  };
+
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < OPENAI_TRANSCRIBE_MAX_RETRIES; attempt += 1) {
+    const response = await fetchWithTimeout(endpoint, {
+      method: "POST",
+      headers: {
+        "x-goog-api-key": runtime.transcribeApiKey || runtime.apiKey,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+    }, TRANSCRIBE_TIMEOUT_MS);
+
+    if (response.ok) {
+      const segments = parseGeminiTranscription(await response.json());
+      if (segments.length === 0) {
+        throw new Error("Gemini transcription returned an empty segments array.");
+      }
+      return segments;
+    }
+
+    lastError = await formatTranscriptionError(response);
+    const status = Number((lastError as any).status ?? 0);
+    if (!isRetriableTranscriptionStatus(status) || attempt >= OPENAI_TRANSCRIBE_MAX_RETRIES - 1) {
+      break;
+    }
+    await sleep(
+      computeRetryWaitSeconds(
+        attempt,
+        (lastError as any).retryAfter,
+        OPENAI_TRANSCRIBE_MAX_BACKOFF_SECONDS,
+      ) * 1000,
+    );
+  }
+
+  throw lastError ?? new Error("Gemini transcription failed.");
+};
+
 export const aiTranscribeAudio = async (
   runtime: ProviderRuntimeConfig,
   audioPath: string,
@@ -440,6 +648,9 @@ export const aiTranscribeAudio = async (
   }
 
   const audioBuffer = fs.readFileSync(audioPath);
+  if (runtime.provider === "gemini") {
+    return transcribeWithGemini(runtime, audioBuffer);
+  }
   const audioBlob = new Blob([audioBuffer], { type: "audio/mpeg" });
   const fileName = path.basename(audioPath);
   const primaryFormat: TranscriptionResponseFormat = "json";

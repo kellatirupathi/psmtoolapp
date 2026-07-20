@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  GEMINI_AUDIO_CHUNK_DURATION_SECONDS,
+  GEMINI_AUDIO_SINGLE_SHOT_MAX_BYTES,
   OPENAI_AUDIO_CHUNK_DURATION_SECONDS,
   OPENAI_AUDIO_SINGLE_SHOT_MAX_BYTES,
 } from "../config";
@@ -287,7 +289,10 @@ export const splitAudioIntoChunks = (
   return chunks.length > 0 ? chunks : [audioPath];
 };
 
-export const splitAudioForProvider = (audioPath: string): string[] => {
+export const splitAudioForProvider = (
+  audioPath: string,
+  provider: "openai" | "gemini" = "openai",
+): string[] => {
   let fileSizeBytes = 0;
   try {
     fileSizeBytes = fs.statSync(audioPath).size;
@@ -295,11 +300,18 @@ export const splitAudioForProvider = (audioPath: string): string[] => {
     fileSizeBytes = 0;
   }
 
-  if (fileSizeBytes > 0 && fileSizeBytes <= OPENAI_AUDIO_SINGLE_SHOT_MAX_BYTES) {
+  const maxBytes = provider === "gemini"
+    ? GEMINI_AUDIO_SINGLE_SHOT_MAX_BYTES
+    : OPENAI_AUDIO_SINGLE_SHOT_MAX_BYTES;
+  const chunkDuration = provider === "gemini"
+    ? GEMINI_AUDIO_CHUNK_DURATION_SECONDS
+    : OPENAI_AUDIO_CHUNK_DURATION_SECONDS;
+
+  if (fileSizeBytes > 0 && fileSizeBytes <= maxBytes) {
     return [audioPath];
   }
 
-  return splitAudioIntoChunks(audioPath, OPENAI_AUDIO_CHUNK_DURATION_SECONDS);
+  return splitAudioIntoChunks(audioPath, chunkDuration);
 };
 
 export const formatTimestampClean = (secondsInput: number): string => {

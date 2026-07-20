@@ -6,6 +6,9 @@ const PROVIDER_SETTINGS_ID = "ai_provider_config";
 
 export type ProviderSettings = {
   openai: ProviderSettingsEntry;
+  gemini: ProviderSettingsEntry;
+  transcriptionProvider: AiProvider;
+  qnaProvider: AiProvider;
   saveToSheets: boolean;
   saveToBigQuery: boolean;
   updatedAt: string;
@@ -63,6 +66,21 @@ const OPENAI_DEFAULTS: ProviderSettingsEntry = {
   transcribeModel: process.env.OPENAI_TRANSCRIBE_MODEL?.trim() ?? "gpt-4o-transcribe",
 };
 
+const GEMINI_GENERATE_CONTENT_ENDPOINT =
+  "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
+
+const GEMINI_DEFAULTS: ProviderSettingsEntry = {
+  apiKey: process.env.GEMINI_API_KEY?.trim() ?? "",
+  transcribeApiKey: process.env.GEMINI_TRANSCRIBE_API_KEY?.trim() ?? "",
+  chatEndpoint: process.env.GEMINI_CHAT_ENDPOINT?.trim() ?? GEMINI_GENERATE_CONTENT_ENDPOINT,
+  ocrEndpoint: process.env.GEMINI_OCR_ENDPOINT?.trim() ?? GEMINI_GENERATE_CONTENT_ENDPOINT,
+  transcribeEndpoint:
+    process.env.GEMINI_TRANSCRIBE_ENDPOINT?.trim() ?? GEMINI_GENERATE_CONTENT_ENDPOINT,
+  chatModel: process.env.GEMINI_CHAT_MODEL?.trim() ?? "gemini-3.1-flash-lite",
+  ocrModel: process.env.GEMINI_OCR_MODEL?.trim() ?? "gemini-3.1-flash-lite",
+  transcribeModel: process.env.GEMINI_TRANSCRIBE_MODEL?.trim() ?? "gemini-3.5-flash",
+};
+
 const normalizeString = (value: unknown, fallback = ""): string => {
   if (typeof value !== "string") {
     return fallback;
@@ -75,6 +93,11 @@ const normalizeBoolean = (value: unknown, fallback: boolean): boolean => {
     return value;
   }
   return fallback;
+};
+
+const normalizeProvider = (value: unknown, fallback: AiProvider): AiProvider => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "openai" || normalized === "gemini" ? normalized : fallback;
 };
 
 const normalizeEntry = (value: unknown, fallback: ProviderSettingsEntry): ProviderSettingsEntry => {
@@ -92,10 +115,16 @@ const normalizeEntry = (value: unknown, fallback: ProviderSettingsEntry): Provid
   };
 };
 
-const normalizeSettings = (value: unknown, defaults?: ProviderSettings): ProviderSettings => {
+export const normalizeProviderSettings = (
+  value: unknown,
+  defaults?: ProviderSettings,
+): ProviderSettings => {
   const source = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   const fallback: ProviderSettings = defaults ?? {
     openai: { ...OPENAI_DEFAULTS },
+    gemini: { ...GEMINI_DEFAULTS },
+    transcriptionProvider: normalizeProvider(process.env.INTERVIEW_TRANSCRIPTION_PROVIDER, "gemini"),
+    qnaProvider: normalizeProvider(process.env.INTERVIEW_QNA_PROVIDER, "gemini"),
     saveToSheets: true,
     saveToBigQuery: false,
     updatedAt: nowIso(),
@@ -103,6 +132,12 @@ const normalizeSettings = (value: unknown, defaults?: ProviderSettings): Provide
 
   return {
     openai: normalizeEntry(source.openai, fallback.openai),
+    gemini: normalizeEntry(source.gemini, fallback.gemini),
+    transcriptionProvider: normalizeProvider(
+      source.transcriptionProvider,
+      fallback.transcriptionProvider,
+    ),
+    qnaProvider: normalizeProvider(source.qnaProvider, fallback.qnaProvider),
     saveToSheets: normalizeBoolean(source.saveToSheets, fallback.saveToSheets),
     saveToBigQuery: normalizeBoolean(source.saveToBigQuery, fallback.saveToBigQuery),
     updatedAt: normalizeString(source.updatedAt, fallback.updatedAt),
@@ -111,6 +146,9 @@ const normalizeSettings = (value: unknown, defaults?: ProviderSettings): Provide
 
 const toPublicSettings = (document: ProviderSettingsDocument): ProviderSettings => ({
   openai: document.openai,
+  gemini: document.gemini,
+  transcriptionProvider: document.transcriptionProvider,
+  qnaProvider: document.qnaProvider,
   saveToSheets: document.saveToSheets,
   saveToBigQuery: document.saveToBigQuery,
   updatedAt: document.updatedAt,
@@ -121,6 +159,9 @@ const defaultSettings = (): ProviderSettingsDocument => {
   return {
     _id: PROVIDER_SETTINGS_ID,
     openai: { ...OPENAI_DEFAULTS },
+    gemini: { ...GEMINI_DEFAULTS },
+    transcriptionProvider: normalizeProvider(process.env.INTERVIEW_TRANSCRIPTION_PROVIDER, "gemini"),
+    qnaProvider: normalizeProvider(process.env.INTERVIEW_QNA_PROVIDER, "gemini"),
     saveToSheets: true,
     saveToBigQuery: false,
     createdAt: now,
@@ -146,7 +187,7 @@ export const getProviderSettings = async (): Promise<ProviderSettings> => {
       return toPublicSettings(created);
     }
 
-    const normalized = normalizeSettings(existing, toPublicSettings(existing));
+    const normalized = normalizeProviderSettings(existing);
     return normalized;
   } catch (error) {
     if (isMongoConnectivityError(error)) {
@@ -164,8 +205,8 @@ export const getProviderSettings = async (): Promise<ProviderSettings> => {
 export const saveProviderSettings = async (input: unknown): Promise<ProviderSettings> => {
   const collection = await getCollection();
   const existing = await collection.findOne({ _id: PROVIDER_SETTINGS_ID });
-  const current = existing ? toPublicSettings(existing) : toPublicSettings(defaultSettings());
-  const normalized = normalizeSettings(input, current);
+  const current = existing ? normalizeProviderSettings(existing) : toPublicSettings(defaultSettings());
+  const normalized = normalizeProviderSettings(input, current);
   const now = nowIso();
 
   const nextDocument: ProviderSettingsDocument = {
@@ -173,6 +214,9 @@ export const saveProviderSettings = async (input: unknown): Promise<ProviderSett
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     openai: normalized.openai,
+    gemini: normalized.gemini,
+    transcriptionProvider: normalized.transcriptionProvider,
+    qnaProvider: normalized.qnaProvider,
     saveToSheets: normalized.saveToSheets,
     saveToBigQuery: normalized.saveToBigQuery,
   };
@@ -182,8 +226,10 @@ export const saveProviderSettings = async (input: unknown): Promise<ProviderSett
   return toPublicSettings(nextDocument);
 };
 
-export const getRuntimeProviderConfig = async (provider: AiProvider): Promise<ProviderRuntimeConfig> => {
-  const settings = await getProviderSettings();
+const runtimeConfigFromSettings = (
+  settings: ProviderSettings,
+  provider: AiProvider,
+): ProviderRuntimeConfig => {
   const selected = settings[provider];
 
   if (!selected.apiKey.trim()) {
@@ -206,6 +252,22 @@ export const getRuntimeProviderConfig = async (provider: AiProvider): Promise<Pr
       ocr: selected.ocrModel,
       transcribe: selected.transcribeModel,
     },
+  };
+};
+
+export const getRuntimeProviderConfig = async (provider: AiProvider): Promise<ProviderRuntimeConfig> => {
+  const settings = await getProviderSettings();
+  return runtimeConfigFromSettings(settings, provider);
+};
+
+export const getInterviewRuntimeConfigs = async (): Promise<{
+  transcription: ProviderRuntimeConfig;
+  qna: ProviderRuntimeConfig;
+}> => {
+  const settings = await getProviderSettings();
+  return {
+    transcription: runtimeConfigFromSettings(settings, settings.transcriptionProvider),
+    qna: runtimeConfigFromSettings(settings, settings.qnaProvider),
   };
 };
 

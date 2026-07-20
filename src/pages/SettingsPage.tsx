@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchProviderSettings, saveProviderSettings } from "../api/client";
 import type { ProviderSettings, ProviderSettingsEntry } from "../types";
 
+const GEMINI_GENERATE_CONTENT_ENDPOINT =
+  "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
+
 const defaultEntry = (entry: Partial<ProviderSettingsEntry> = {}): ProviderSettingsEntry => ({
   apiKey: entry.apiKey ?? "",
   transcribeApiKey: entry.transcribeApiKey ?? "",
@@ -22,12 +25,22 @@ const defaultSettings: ProviderSettings = {
     ocrModel: "gpt-4.1-mini",
     transcribeModel: "gpt-4o-transcribe",
   }),
+  gemini: defaultEntry({
+    chatEndpoint: GEMINI_GENERATE_CONTENT_ENDPOINT,
+    ocrEndpoint: GEMINI_GENERATE_CONTENT_ENDPOINT,
+    transcribeEndpoint: GEMINI_GENERATE_CONTENT_ENDPOINT,
+    chatModel: "gemini-3.1-flash-lite",
+    ocrModel: "gemini-3.1-flash-lite",
+    transcribeModel: "gemini-3.5-flash",
+  }),
+  transcriptionProvider: "gemini",
+  qnaProvider: "gemini",
   saveToSheets: true,
   saveToBigQuery: true,
   updatedAt: "",
 };
 
-type ProviderKey = "openai";
+type ProviderKey = "openai" | "gemini";
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<ProviderSettings>(defaultSettings);
@@ -48,15 +61,13 @@ export function SettingsPage() {
       try {
         setLoading(true);
         setError(null);
-        const remote = await fetchProviderSettings();
-        setSettings(remote);
+        setSettings(await fetchProviderSettings());
       } catch (err) {
         setError(String(err));
       } finally {
         setLoading(false);
       }
     };
-
     void load();
   }, []);
 
@@ -67,18 +78,19 @@ export function SettingsPage() {
   ): void => {
     setSettings((prev) => ({
       ...prev,
-      [provider]: {
-        ...prev[provider],
-        [field]: value,
-      },
+      [provider]: { ...prev[provider], [field]: value },
     }));
   };
 
   const updateStorageToggle = (field: "saveToSheets" | "saveToBigQuery", value: boolean): void => {
-    setSettings((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setSettings((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateInterviewProvider = (
+    field: "transcriptionProvider" | "qnaProvider",
+    value: ProviderKey,
+  ): void => {
+    setSettings((prev) => ({ ...prev, [field]: value }));
   };
 
   const save = async (): Promise<void> => {
@@ -86,8 +98,7 @@ export function SettingsPage() {
       setSaving(true);
       setError(null);
       setSuccess(null);
-      const saved = await saveProviderSettings(settings);
-      setSettings(saved);
+      setSettings(await saveProviderSettings(settings));
       setSuccess("Settings saved.");
     } catch (err) {
       setError(String(err));
@@ -97,10 +108,7 @@ export function SettingsPage() {
   };
 
   const checkForUpdates = async (): Promise<void> => {
-    if (!canCheckForUpdates || !window.desktopUpdater) {
-      return;
-    }
-
+    if (!canCheckForUpdates || !window.desktopUpdater) return;
     try {
       setCheckingForUpdates(true);
       setUpdateError(null);
@@ -120,13 +128,15 @@ export function SettingsPage() {
 
   const renderProviderCard = (provider: ProviderKey, title: string) => {
     const entry = settings[provider];
+    const isGemini = provider === "gemini";
     return (
       <section className="provider-card">
         <h4>{title}</h4>
         <label>
           API Key
           <input
-            type="text"
+            type="password"
+            autoComplete="new-password"
             value={entry.apiKey}
             onChange={(event) => updateField(provider, "apiKey", event.target.value)}
           />
@@ -134,29 +144,32 @@ export function SettingsPage() {
         <label>
           Transcribe API Key <span className="muted">(optional — falls back to API Key)</span>
           <input
-            type="text"
+            type="password"
+            autoComplete="new-password"
             value={entry.transcribeApiKey}
             onChange={(event) => updateField(provider, "transcribeApiKey", event.target.value)}
           />
         </label>
         <label>
-          Chat Endpoint
+          {isGemini ? "Q&A Generate Content Endpoint" : "Chat Endpoint"}
           <input
             type="text"
             value={entry.chatEndpoint}
             onChange={(event) => updateField(provider, "chatEndpoint", event.target.value)}
           />
         </label>
+        {!isGemini && (
+          <label>
+            OCR Endpoint
+            <input
+              type="text"
+              value={entry.ocrEndpoint}
+              onChange={(event) => updateField(provider, "ocrEndpoint", event.target.value)}
+            />
+          </label>
+        )}
         <label>
-          OCR Endpoint
-          <input
-            type="text"
-            value={entry.ocrEndpoint}
-            onChange={(event) => updateField(provider, "ocrEndpoint", event.target.value)}
-          />
-        </label>
-        <label>
-          Transcribe Endpoint
+          {isGemini ? "Audio Generate Content Endpoint" : "Transcribe Endpoint"}
           <input
             type="text"
             value={entry.transcribeEndpoint}
@@ -164,23 +177,25 @@ export function SettingsPage() {
           />
         </label>
         <label>
-          Chat Model
+          {isGemini ? "Q&A Model" : "Chat Model"}
           <input
             type="text"
             value={entry.chatModel}
             onChange={(event) => updateField(provider, "chatModel", event.target.value)}
           />
         </label>
+        {!isGemini && (
+          <label>
+            OCR Model
+            <input
+              type="text"
+              value={entry.ocrModel}
+              onChange={(event) => updateField(provider, "ocrModel", event.target.value)}
+            />
+          </label>
+        )}
         <label>
-          OCR Model
-          <input
-            type="text"
-            value={entry.ocrModel}
-            onChange={(event) => updateField(provider, "ocrModel", event.target.value)}
-          />
-        </label>
-        <label>
-          Transcribe Model
+          {isGemini ? "Audio Transcription Model" : "Transcribe Model"}
           <input
             type="text"
             value={entry.transcribeModel}
@@ -196,7 +211,7 @@ export function SettingsPage() {
       <section className="panel">
         <h3>Settings</h3>
         <p className="muted">
-          Configure global AI provider credentials and endpoints for all users.
+          Configure global AI credentials and select providers independently for interview transcription and Q&A.
         </p>
         <div className="inline-controls">
           <label>
@@ -216,8 +231,39 @@ export function SettingsPage() {
             Save outputs to BigQuery
           </label>
         </div>
+
+        <div className="provider-routing-grid">
+          <label>
+            Interview audio transcription provider
+            <select
+              value={settings.transcriptionProvider}
+              onChange={(event) => updateInterviewProvider(
+                "transcriptionProvider",
+                event.target.value as ProviderKey,
+              )}
+            >
+              <option value="gemini">Gemini</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+          <label>
+            Interview Q&A provider
+            <select
+              value={settings.qnaProvider}
+              onChange={(event) => updateInterviewProvider(
+                "qnaProvider",
+                event.target.value as ProviderKey,
+              )}
+            >
+              <option value="gemini">Gemini</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+        </div>
+
         <div className="settings-grid">
           {renderProviderCard("openai", "OpenAI")}
+          {renderProviderCard("gemini", "Gemini")}
         </div>
 
         <div className="button-row">
